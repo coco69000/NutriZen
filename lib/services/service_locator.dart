@@ -6,6 +6,7 @@ import 'activity_service.dart';
 import 'habit_service.dart';
 import 'exercise_library_service.dart';
 import 'deepseek_service.dart';
+import 'usda_nlp_service.dart';
 
 class SL {
   static final NotificationService notificationService = NotificationService();
@@ -16,6 +17,7 @@ class SL {
   static final HabitService habitService = HabitService();
   static final ExerciseLibraryService exerciseLibrary = ExerciseLibraryService();
   static final DeepSeekService aiService = DeepSeekService(apiKey: 'HA2RvSG1u7aE7u78yXd1UqnBuMY6VV70');
+  static final UsdaNlpService usdaNlp = UsdaNlpService();
 
   static Future<void> initAll() async {
     await notificationService.init();

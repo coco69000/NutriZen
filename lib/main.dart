@@ -1514,6 +1514,11 @@ class MealPlanEntry {
   final double estimatedProteins;
   final double estimatedCarbs;
   final double estimatedFats;
+  final String? imageUrl;
+  final String? recipeInstructions;
+  final int? prepTime;
+  final List<String>? utensils;
+  final List<String>? ingredients;
 
   MealPlanEntry({
     String? id,
@@ -1525,6 +1530,11 @@ class MealPlanEntry {
     this.estimatedProteins = 0.0,
     this.estimatedCarbs = 0.0,
     this.estimatedFats = 0.0,
+    this.imageUrl,
+    this.recipeInstructions,
+    this.prepTime,
+    this.utensils,
+    this.ingredients,
   }) : id = id ?? uuid.v4();
 
   FoodEntry toFoodEntry() {
@@ -1551,6 +1561,11 @@ class MealPlanEntry {
     'estimatedProteins': estimatedProteins,
     'estimatedCarbs': estimatedCarbs,
     'estimatedFats': estimatedFats,
+    'imageUrl': imageUrl,
+    'recipeInstructions': recipeInstructions,
+    'prepTime': prepTime,
+    'utensils': utensils,
+    'ingredients': ingredients,
   };
 
   factory MealPlanEntry.fromFirestore(
@@ -1564,11 +1579,22 @@ class MealPlanEntry {
       orElse: () => MealType.unknown,
     ),
     mealName: json['mealName'],
-    description: json['description'],
+    description: json['description'] ?? '',
     estimatedCalories: json['estimatedCalories'] ?? 0,
     estimatedProteins: (json['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
     estimatedCarbs: (json['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
     estimatedFats: (json['estimatedFats'] as num?)?.toDouble() ?? 0.0,
+    imageUrl: json['imageUrl'],
+    recipeInstructions: json['recipeInstructions'],
+    prepTime: json['prepTime'] as int?,
+    utensils:
+      (json['utensils'] as List<dynamic>?)
+        ?.map((e) => e.toString())
+        .toList(),
+    ingredients:
+      (json['ingredients'] as List<dynamic>?)
+        ?.map((e) => e.toString())
+        .toList(),
   );
 }
 
@@ -3024,6 +3050,73 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     );
   }
 
+  void _showRewardsDialog() {
+    showDialog(
+      context: context,
+      builder:
+          (ctx) => AlertDialog(
+            title: Row(
+              children: [
+                const Text('🔥 '),
+                Text(
+                  'Série Actuelle : $_currentStreak j',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Maintenez votre série en vous connectant chaque jour pour gagner des récompenses !",
+                ),
+                const SizedBox(height: 16),
+                _buildRewardItem(3, '1 appel IA bonus / jour', _currentStreak >= 3),
+                _buildRewardItem(
+                  7,
+                  '3 appels IA bonus / jour',
+                  _currentStreak >= 7,
+                ),
+                _buildRewardItem(
+                  15,
+                  '5 appels IA bonus / jour',
+                  _currentStreak >= 15,
+                ),
+                _buildRewardItem(
+                  30,
+                  'Badge Utilisateur Assidu',
+                  _currentStreak >= 30,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Fermer'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Widget _buildRewardItem(int days, String reward, bool unlocked) {
+    return ListTile(
+      leading: Icon(
+        unlocked ? Icons.check_circle : Icons.lock,
+        color: unlocked ? Colors.green : Colors.grey,
+      ),
+      title: Text(
+        reward,
+        style: TextStyle(
+          fontWeight: unlocked ? FontWeight.bold : FontWeight.normal,
+          color: unlocked ? Colors.black : Colors.grey,
+        ),
+      ),
+      subtitle: Text('Atteindre $days jours'),
+    );
+  }
+
   Future<void> _onUserProfileUpdated() async {
     setState(() {
       _tabsLoading = true;
@@ -3151,24 +3244,33 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8.0),
               child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    children: [
-                      const Text('🔥', style: TextStyle(fontSize: 16)),
-                      const SizedBox(width: 4),
-                      Text(
-                        '$_currentStreak j',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
+                child: InkWell(
+                  onTap: _showRewardsDialog,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      children: [
+                        const Text('🔥', style: TextStyle(fontSize: 16)),
+                        const SizedBox(width: 4),
+                        Text(
+                          '$_currentStreak j',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -6251,6 +6353,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
       "analysis": "Ton texte d'analyse ici",
       "projections": [70.5, 70.0, 69.5, 69.0, 68.5, 68.0, 67.5, 67.0]
     }
+    IMPORTANT : "projections" DOIT être un tableau (Array) contenant EXACTEMENT 8 NOMBRES DÉCIMAUX (pas de string).
     ''';
 
     try {
@@ -11784,22 +11887,23 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
   final TextEditingController _promptController = TextEditingController();
   final TextEditingController _searchApiController = TextEditingController();
 
-  // États pour l'IA
   bool _generateShoppingList = false;
   String? _fridgeContent;
+  String _recipeDifficulty = 'Normal'; // Simple, Normal, Difficile
 
-  // États pour l'API TheMealDB
-  // CORRECTION: Initialisation explicite pour éviter le null
   List<dynamic> _dailySuggestions = [];
   List<dynamic> _apiSearchResults = [];
   bool _isLoadingApi = false;
   bool _isSearchingApi = false;
+
+  List<String> _savedShoppingList = [];
 
   @override
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
     _fetchDailySuggestions();
+    _loadShoppingList();
   }
 
   @override
@@ -11809,23 +11913,63 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     super.dispose();
   }
 
-  // --- LOGIQUE API THEMEALDB ---
+  // --- SCRAPING IMAGE BING ---
+  Future<String?> _fetchImageUrl(String query) async {
+    try {
+      final url = Uri.parse('https://www.bing.com/images/search?q=${Uri.encodeComponent(query + " recette plat")}&form=HDRSC3&first=1');
+      final response = await http.get(url, headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      });
+      if (response.statusCode == 200) {
+        final RegExp regex = RegExp(r'murl&quot;:&quot;(https?://[^&]+)&quot;');
+        final match = regex.firstMatch(response.body);
+        if (match != null) {
+          return match.group(1);
+        }
+      }
+    } catch (e) {
+      debugPrint("Erreur scraping image: $e");
+    }
+    return null;
+  }
 
+  // --- LISTE DE COURSES ---
+  Future<void> _loadShoppingList() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _savedShoppingList = prefs.getStringList('shopping_list_${widget.userProfile.id}') ?? [];
+    });
+  }
+
+  Future<void> _saveShoppingList(List<String> list) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('shopping_list_${widget.userProfile.id}', list);
+    setState(() => _savedShoppingList = list);
+  }
+
+  // --- SUGGESTIONS THEMEALDB (Entrée, Plat, Dessert) ---
   Future<void> _fetchDailySuggestions() async {
     if (!mounted) return;
     setState(() => _isLoadingApi = true);
 
     try {
+      final categories = ['Starter', 'Beef', 'Dessert']; // Entrée, Plat, Dessert
       List<dynamic> tempSuggestions = [];
-      for (int i = 0; i < 3; i++) {
-        final response = await http.get(
-          Uri.parse('https://www.themealdb.com/api/json/v1/1/random.php'),
-        );
+
+      for (String cat in categories) {
+        final response = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/filter.php?c=$cat'));
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
-          // CORRECTION: Vérification stricte que la liste n'est pas vide
           if (data['meals'] != null && (data['meals'] as List).isNotEmpty) {
-            tempSuggestions.add(data['meals'][0]);
+            final meals = data['meals'] as List;
+            final randomMeal = meals[Random().nextInt(meals.length)];
+            
+            // Fetch details to get instructions
+            final detailResp = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/lookup.php?i=${randomMeal["idMeal"]}'));
+            if (detailResp.statusCode == 200) {
+              final detailData = json.decode(detailResp.body);
+              tempSuggestions.add(detailData['meals'][0]);
+            }
           }
         }
       }
@@ -11837,7 +11981,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         });
       }
     } catch (e) {
-      print("Erreur API MealDB: $e");
+      debugPrint("Erreur API MealDB: $e");
       if (mounted) setState(() => _isLoadingApi = false);
     }
   }
@@ -11850,30 +11994,24 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
       });
       return;
     }
-
     setState(() {
       _isLoadingApi = true;
       _isSearchingApi = true;
     });
 
     try {
-      final response = await http.get(
-        Uri.parse(
-          'https://www.themealdb.com/api/json/v1/1/search.php?s=$query',
-        ),
-      );
+      final response = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/search.php?s=$query'));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (mounted) {
           setState(() {
-            // CORRECTION: Cast explicite et fallback sur liste vide
             _apiSearchResults = (data['meals'] as List?) ?? [];
             _isLoadingApi = false;
           });
         }
       }
     } catch (e) {
-      print("Erreur recherche API: $e");
+      debugPrint("Erreur recherche API: $e");
       if (mounted) setState(() => _isLoadingApi = false);
     }
   }
@@ -11894,9 +12032,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                 children: [
                   ListTile(
                     title: const Text("Date"),
-                    subtitle: Text(
-                      DateFormat('dd/MM/yyyy').format(selectedDate),
-                    ),
+                    subtitle: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
                     trailing: const Icon(Icons.calendar_today),
                     onTap: () async {
                       final picked = await showDatePicker(
@@ -11912,57 +12048,31 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                   ),
                   DropdownButtonFormField<MealType>(
                     value: selectedType,
-                    decoration: const InputDecoration(
-                      labelText: 'Type de repas',
-                    ),
-                    items:
-                        [
-                              MealType.lunch,
-                              MealType.dinner,
-                              MealType.breakfast,
-                              MealType.snack,
-                            ]
-                            .map(
-                              (t) => DropdownMenuItem(
-                                value: t,
-                                child: Text(t.toCapitalizedString()),
-                              ),
-                            )
-                            .toList(),
+                    decoration: const InputDecoration(labelText: 'Type de repas'),
+                    items: [MealType.lunch, MealType.dinner, MealType.breakfast, MealType.snack]
+                        .map((t) => DropdownMenuItem(value: t, child: Text(t.toCapitalizedString())))
+                        .toList(),
                     onChanged: (v) => setDialogState(() => selectedType = v!),
                   ),
                 ],
               ),
               actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Annuler'),
-                ),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
                 ElevatedButton(
                   onPressed: () {
-                    String desc =
-                        "${mealApiData['strCategory'] ?? ''} - ${mealApiData['strArea'] ?? ''}";
+                    String desc = "${mealApiData['strCategory'] ?? ''} - ${mealApiData['strArea'] ?? ''}";
                     widget.addMealPlanEntry(
                       MealPlanEntry(
                         date: selectedDate,
                         mealType: selectedType,
                         mealName: mealApiData['strMeal'],
                         description: desc,
-                        estimatedCalories: 0,
-                        estimatedProteins: 0,
-                        estimatedCarbs: 0,
-                        estimatedFats: 0,
+                        imageUrl: mealApiData['strMealThumb'],
+                        recipeInstructions: mealApiData['strInstructions'],
                       ),
                     );
                     Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          "${mealApiData['strMeal']} ajouté au calendrier !",
-                        ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${mealApiData['strMeal']} ajouté !"), backgroundColor: Colors.green));
                   },
                   child: const Text('Ajouter'),
                 ),
@@ -11974,588 +12084,440 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     );
   }
 
-  // --- MÉTHODES EXISTANTES ---
-
-  List<MealPlanEntry> _getMealsForDay(DateTime day) {
-    // CORRECTION: Sécurité sur widget.mealPlans
-    return widget.mealPlans.where((plan) => isSameDay(plan.date, day)).toList();
-  }
-
-  Future<void> _showDailyMenuOptions() async {
-    final option = await showModalBottomSheet<String>(
+  // --- MENU GRATUIT (THEMEALDB + USDA) : 0% IA ---
+  Future<void> _generateFreeMealDBMenu() async {
+    showDialog(
       context: context,
-      builder:
-          (ctx) => Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Wrap(
-              runSpacing: 10,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.kitchen, color: Colors.green),
-                  title: const Text('Prendre une photo de mon frigo'),
-                  onTap: () => Navigator.pop(ctx, 'fridge_photo'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.menu_book, color: Colors.orange),
-                  title: const Text("Prendre une photo d'une carte de menu"),
-                  onTap: () => Navigator.pop(ctx, 'menu_photo'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.text_fields, color: Colors.blue),
-                  title: const Text('Taper le texte (classique)'),
-                  onTap: () => Navigator.pop(ctx, 'text'),
-                ),
-              ],
-            ),
-          ),
+      barrierDismissible: false,
+      builder: (ctx) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Expanded(child: Text("Récupération des recettes et calcul des calories USDA...")),
+          ],
+        ),
+      ),
     );
 
-    if (option == null) return;
-
-    if (option == 'fridge_photo' || option == 'menu_photo') {
-      final imagePath = await _pickImage();
-      if (imagePath != null) {
-        if (option == 'fridge_photo') {
-          _fridgeContent =
-              "Le contenu de mon frigo est visible sur la photo que j'ai fournie.";
-          _promptController.text =
-              "Génère un menu pour aujourd'hui en utilisant principalement les ingrédients de mon frigo (visibles sur la photo).";
-        } else {
-          _promptController.text =
-              "Analyse le plat sur cette photo de menu et crée une entrée de repas détaillée avec ses macros estimées.";
-        }
-        await _generateMenuWithIA(isWeekly: false);
-      }
-    } else if (option == 'text') {
-      await _generateMenuWithIA(isWeekly: false);
-    }
-  }
-
-  Future<String?> _pickImage() async {
     try {
-      final picker = ImagePicker();
-      final XFile? image = await picker.pickImage(source: ImageSource.camera);
-      return image?.path;
+      final cats = ['Starter', 'Beef', 'Dessert'];
+      List<Map<String, dynamic>> rawMeals = [];
+      
+      // 1. TheMealDB (0% IA)
+      for (String c in cats) {
+        final r1 = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/filter.php?c=$c'));
+        if (r1.statusCode == 200) {
+          final d1 = json.decode(r1.body);
+          if (d1['meals'] != null) {
+            final mList = d1['meals'] as List;
+            final rMeal = mList[Random().nextInt(mList.length)];
+            final r2 = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/lookup.php?i=${rMeal["idMeal"]}'));
+            final d2 = json.decode(r2.body);
+            rawMeals.add(d2['meals'][0]);
+          }
+        }
+      }
+
+      // 2. USDA (Calcul des calories)
+      for (int i = 0; i < rawMeals.length; i++) {
+        var m = rawMeals[i];
+        List<String> extractedIngredients = [];
+        double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
+
+        for (int j = 1; j <= 20; j++) {
+          String? measure = m['strMeasure$j'];
+          String? ingredient = m['strIngredient$j'];
+          
+          if (ingredient != null && ingredient.trim().isNotEmpty) {
+            extractedIngredients.add("${measure?.trim() ?? ''} ${ingredient.trim()}".trim());
+            // Calcul via l'API du gouvernement
+            final macros = await SL.usdaNlp.getMacrosFromUSDA(ingredient.trim(), measure ?? "");
+            totalCal += macros['calories']!;
+            totalPro += macros['proteins']!;
+            totalCarb += macros['carbs']!;
+            totalFat += macros['fats']!;
+          }
+        }
+
+        MealType mType = (i == 1) ? MealType.dinner : MealType.snack;
+
+        widget.addMealPlanEntry(MealPlanEntry(
+          date: _selectedDay ?? DateTime.now(),
+          mealType: mType,
+          mealName: m['strMeal'] ?? "Repas",
+          description: m['strCategory'] ?? "TheMealDB",
+          recipeInstructions: m['strInstructions'],
+          prepTime: 20,
+          utensils: ["Standard"],
+          ingredients: extractedIngredients,
+          imageUrl: m['strMealThumb'],
+          estimatedCalories: totalCal.toInt(),
+          estimatedProteins: totalPro,
+          estimatedCarbs: totalCarb,
+          estimatedFats: totalFat,
+        ));
+      }
+      
+      if (mounted) Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Menu TheMealDB généré !"), backgroundColor: Colors.green));
+
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Erreur de caméra: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
-      return null;
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
+  // --- MENU PREMIUM (IA DEEPSEEK + USDA) : 0% TheMealDB ---
   Future<void> _generateMenuWithIA({bool isWeekly = false}) async {
-    if (_promptController.text.isEmpty && _fridgeContent == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Veuillez décrire vos préférences ou fournir une photo.",
-          ),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+      return _generateFreeMealDBMenu();
     }
 
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder:
-          (ctx) => const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Text("L'IA prépare votre menu..."),
-              ],
-            ),
-          ),
+      builder: (ctx) => const AlertDialog(
+        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 20), Expanded(child: Text("L'IA crée vos recettes, l'USDA calcule les calories..."))]),
+      ),
     );
 
-    String shoppingListInstruction =
-        _generateShoppingList
-            ? "De plus, à la racine du JSON, ajoute une clé 'shopping_list' contenant une liste de chaînes de caractères avec TOUS les ingrédients à acheter pour réaliser l'ensemble de ce plan."
-            : "";
-
+    // Note : On ne demande plus les calories à l'IA !
     final String prompt = '''
-    En tant que nutritionniste expert, crée un plan de repas.
-    TÂCHE: ${isWeekly ? "Génère un plan de repas pour 7 jours." : "Génère un plan de repas pour UN jour."}
-    PROFIL: ${widget.userProfile.age} ans, ${widget.userProfile.gender}, Objectif: ${widget.currentGoals.weightGoalType}.
-    Calories cible journalière: ${widget.currentGoals.targetCalories} kcal.
-    PREFERENCES: "${_promptController.text}". FRIGO: "${_fridgeContent ?? 'Non fourni'}".
+    Génère un plan de repas pour ${isWeekly ? "7 JOURS (du Lundi au Dimanche)" : "1 JOUR"}.
+    PROFIL: Objectif ${widget.currentGoals.weightGoalType}.
     
-    INSTRUCTION IMPORTANTE POUR LES REPAS : 
-    Pour le Déjeuner (lunch) et le Dîner (dinner), tu DOIS OBLIGATOIREMENT proposer un vrai repas complet composé d'une Entrée, d'un Plat principal et d'un Dessert. 
-    Dans le JSON, le "mealName" sera le titre général du plat, et la "description" listera explicitement "Entrée: ... | Plat: ... | Dessert: ...".
-    
-    Fournis la réponse au format JSON strict. Clé "meals" (liste d'objets avec "mealType" (breakfast, lunch, dinner, snack), "mealName", "description", "estimatedCalories" (int), "estimatedProteins" (double), "estimatedCarbs" (double), "estimatedFats" (double)).
-    $shoppingListInstruction
+    Format JSON strict :
+    {
+      "meals": [
+        {
+          "day_offset": 0, 
+          "mealType": "dinner",
+          "mealName": "Titre plat",
+          "description": "Courte",
+          "prepTime": 15,
+          "utensils": ["Poêle"],
+          "ingredients": [
+            {"name": "poulet", "measure": "100g"},
+            {"name": "riz", "measure": "50g"}
+          ],
+          "recipe_instructions": "Étape 1. Étape 2."
+        }
+      ]
+    }
     ''';
 
     try {
-      final result = await SL.aiService.fetchJSONResponse(
-        prompt: prompt,
-        temperature: 0.7,
-      );
-
+      final result = await SL.aiService.fetchJSONResponse(prompt: prompt, temperature: 0.6);
       if (mounted) Navigator.pop(context);
 
       if (result != null) {
         await widget.usageTrackerService.incrementDeepSeekApiCall();
         final List<dynamic> mealsRaw = result['meals'] ?? [];
+        
+        DateTime baseDate = _selectedDay!;
+        if (isWeekly) baseDate = baseDate.subtract(Duration(days: baseDate.weekday - 1));
 
-          DateTime startDate = _selectedDay!;
+        for (var m in mealsRaw) {
+          int dayOffset = (m['day_offset'] as num?)?.toInt() ?? 0;
+          DateTime mealDate = isWeekly ? baseDate.add(Duration(days: dayOffset)) : baseDate;
 
-          for (int i = 0; i < mealsRaw.length; i++) {
-            var mealData = mealsRaw[i];
-            DateTime mealDate =
-                isWeekly
-                    ? startDate.add(Duration(days: (i / 4).floor()))
-                    : startDate;
+          // Variables pour le calcul USDA
+          List<dynamic> rawIngs = m['ingredients'] ?? [];
+          List<String> combinedIngredients = [];
+          double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
 
-            widget.addMealPlanEntry(
-              MealPlanEntry(
-                date: mealDate,
-                mealType: MealType.values.firstWhere(
-                  (e) => e.name == mealData['mealType'],
-                  orElse: () => MealType.unknown,
-                ),
-                mealName: mealData['mealName'],
-                description: mealData['description'],
-                estimatedCalories: mealData['estimatedCalories'] ?? 0,
-                estimatedProteins:
-                    (mealData['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
-                estimatedCarbs:
-                    (mealData['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
-                estimatedFats:
-                    (mealData['estimatedFats'] as num?)?.toDouble() ?? 0.0,
-              ),
-            );
+          // L'USDA prend le relais de l'IA pour calculer les calories exactes
+          for (var ing in rawIngs) {
+            String name = ing['name'] ?? '';
+            String measure = ing['measure'] ?? '';
+            combinedIngredients.add("$measure $name".trim());
+            
+            final macros = await SL.usdaNlp.getMacrosFromUSDA(name, measure);
+            totalCal += macros['calories']!;
+            totalPro += macros['proteins']!;
+            totalCarb += macros['carbs']!;
+            totalFat += macros['fats']!;
           }
 
-          if (_generateShoppingList && result['shopping_list'] != null) {
-            final List<String> shoppingList = List<String>.from(
-              result['shopping_list'],
-            );
-            if (mounted) _showShoppingListDialog(shoppingList);
-          }
+          widget.addMealPlanEntry(MealPlanEntry(
+            date: mealDate,
+            mealType: MealType.values.firstWhere((e) => e.name == m['mealType'], orElse: () => MealType.unknown),
+            mealName: m['mealName'],
+            description: m['description'],
+            recipeInstructions: m['recipe_instructions'],
+            prepTime: (m['prepTime'] as num?)?.toInt(),
+            utensils: (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
+            ingredients: combinedIngredients,
+            imageUrl: null, 
+            estimatedCalories: totalCal.toInt(),
+            estimatedProteins: totalPro,
+            estimatedCarbs: totalCarb,
+            estimatedFats: totalFat,
+          ));
+        }
       }
     } catch (e) {
-      if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      setState(() => _fridgeContent = null);
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red));
+      }
     }
   }
 
-  Future<void> _showShoppingListDialog(List<String> items) async {
-    await showDialog(
+  void _showShoppingListDialog() {
+    showDialog(
       context: context,
-      builder:
-          (ctx) => AlertDialog(
-            title: const Text('Liste de Courses (IA)'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child:
-                  items.isEmpty
-                      ? const Text(
-                        "L'IA estime que vous avez tout ce qu'il faut !",
-                      )
-                      : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: items.length,
-                        itemBuilder:
-                            (context, index) => ListTile(
-                              leading: const Icon(Icons.shopping_cart_checkout),
-                              title: Text(items[index]),
-                            ),
-                      ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Fermer'),
+      builder: (ctx) => AlertDialog(
+        title: const Text('Ma Liste de Courses'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: _savedShoppingList.isEmpty
+              ? const Text("Votre liste est vide.")
+              : ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _savedShoppingList.length,
+                  itemBuilder: (context, index) => ListTile(
+                    leading: const Icon(Icons.check_box_outline_blank),
+                    title: Text(_savedShoppingList[index]),
+                  ),
+                ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
+        ],
+      ),
+    );
+  }
+
+  void _showRecipeDialog(MealPlanEntry meal) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.8,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(20),
+          children: [
+            if (meal.imageUrl != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: Image.network(meal.imageUrl!, height: 250, fit: BoxFit.cover, errorBuilder: (c,e,s) => const SizedBox()),
               ),
-            ],
-          ),
+            const SizedBox(height: 16),
+            Text(meal.mealName, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildMacroBadge("${meal.estimatedCalories} kcal", Colors.orange),
+                _buildMacroBadge("${meal.estimatedProteins}g Pro", Colors.blue),
+                _buildMacroBadge("${meal.estimatedCarbs}g Glu", Colors.green),
+                _buildMacroBadge("${meal.estimatedFats}g Lip", Colors.purple),
+              ],
+            ),
+            const Divider(height: 32, thickness: 1),
+            Text("Préparation", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Text(
+              meal.recipeInstructions ?? "Aucune instruction générée.",
+              style: const TextStyle(fontSize: 16, height: 1.5),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(ctx),
+              icon: const Icon(Icons.check),
+              label: const Text("Fermer"),
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMacroBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
+      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    // Protection contre null pour _selectedDay
-    final mealsForSelectedDay =
-        _selectedDay != null ? _getMealsForDay(_selectedDay!) : [];
+    final mealsForSelectedDay = _selectedDay != null ? widget.mealPlans.where((plan) => isSameDay(plan.date, _selectedDay)).toList() : [];
+
+    // Groupement par type de repas
+    final Map<MealType, List<MealPlanEntry>> groupedMeals = {
+      MealType.breakfast: [],
+      MealType.lunch: [],
+      MealType.snack: [],
+      MealType.dinner: [],
+    };
+    for (var m in mealsForSelectedDay) {
+      if (groupedMeals.containsKey(m.mealType)) groupedMeals[m.mealType]!.add(m);
+    }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Planification & Recettes'),
-        automaticallyImplyLeading: false,
-      ),
+      appBar: AppBar(title: const Text('Menus & Recettes'), automaticallyImplyLeading: false),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // 1. BARRE DE RECHERCHE RECETTES
-          TextField(
-            controller: _searchApiController,
-            decoration: InputDecoration(
-              hintText: 'Chercher une recette (ex: Chicken, Salad)...',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(
-                icon: const Icon(Icons.clear),
-                onPressed: () {
-                  _searchApiController.clear();
-                  _searchApiRecipes('');
-                },
+          if (_savedShoppingList.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: ElevatedButton.icon(
+                onPressed: _showShoppingListDialog,
+                icon: const Icon(Icons.shopping_basket),
+                label: const Text("Voir ma dernière liste de courses"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade100, foregroundColor: Colors.teal.shade900),
               ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              filled: true,
-              fillColor: Theme.of(context).brightness == Brightness.dark
-                  ? Colors.grey.shade800
-                  : Colors.grey.shade100,
             ),
-            onSubmitted: _searchApiRecipes,
-          ),
-          const SizedBox(height: 16),
-
-          // 2. ZONE DE RÉSULTATS OU SUGGESTIONS
-          if (_isLoadingApi)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          else if (_isSearchingApi)
-            _apiSearchResults.isEmpty
-                ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Text("Aucune recette trouvée."),
-                  ),
-                )
-                : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Résultats de recherche",
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 8),
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _apiSearchResults.length,
-                      itemBuilder: (context, index) {
-                        final meal = _apiSearchResults[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          child: ListTile(
-                            leading: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.network(
-                                meal['strMealThumb'],
-                                width: 50,
-                                height: 50,
-                                fit: BoxFit.cover,
-                              ),
-                            ),
-                            title: Text(meal['strMeal']),
-                            subtitle: Text(
-                              "${meal['strCategory'] ?? ''} • ${meal['strArea'] ?? ''}",
-                            ),
-                            trailing: IconButton(
-                              icon: const Icon(
-                                Icons.add_circle,
-                                color: Colors.green,
-                              ),
-                              onPressed: () => _addApiMealToCalendar(meal),
-                            ),
+          
+          // Suggestions TheMealDB Complètes
+          Text("Suggestion du Jour (TheMealDB)", style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 190,
+            child: _isLoadingApi 
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _dailySuggestions.length,
+                    itemBuilder: (context, index) {
+                      final meal = _dailySuggestions[index];
+                      return Container(
+                        width: 160,
+                        margin: const EdgeInsets.only(right: 12),
+                        child: Card(
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
                             onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder:
-                                      (context) => RecipeDetailPage(
-                                        mealData: meal,
-                                        onAdd:
-                                            () => _addApiMealToCalendar(meal),
-                                      ),
-                                ),
-                              );
+                              Navigator.push(context, MaterialPageRoute(builder: (ctx) => RecipeDetailPage(mealData: meal, onAdd: () => _addApiMealToCalendar(meal))));
                             },
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                )
-          else
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      "Suggestions du Jour",
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.refresh),
-                      onPressed: _fetchDailySuggestions,
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 180,
-                  child:
-                      _dailySuggestions.isEmpty
-                          ? const Center(
-                            child: Text("Chargement des suggestions..."),
-                          )
-                          : ListView.builder(
-                            scrollDirection: Axis.horizontal,
-                            itemCount: _dailySuggestions.length,
-                            // ... Code existant ...
-                            itemBuilder: (context, index) {
-                              final meal = _dailySuggestions[index];
-                              return Container(
-                                width: 160,
-                                margin: const EdgeInsets.only(right: 12),
-                                child: Card(
-                                  clipBehavior: Clip.antiAlias,
-                                  child: InkWell(
-                                    // <-- Utilisation d'InkWell pour le clic
-                                    onTap: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder:
-                                              (context) => RecipeDetailPage(
-                                                mealData: meal,
-                                                onAdd:
-                                                    () => _addApiMealToCalendar(
-                                                      meal,
-                                                    ),
-                                              ),
-                                        ),
-                                      );
-                                    },
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Expanded(
-                                          child: Image.network(
-                                            meal['strMealThumb'],
-                                            width: double.infinity,
-                                            fit: BoxFit.cover,
-                                          ),
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.all(8.0),
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                meal['strMeal'],
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                              Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  Flexible(
-                                                    child: Text(
-                                                      meal['strCategory'] ?? '',
-                                                      style: const TextStyle(
-                                                        fontSize: 12,
-                                                        color: Colors.grey,
-                                                      ),
-                                                      overflow:
-                                                          TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  // On garde le petit bouton + pour un ajout rapide sans ouvrir
-                                                  InkWell(
-                                                    onTap:
-                                                        () =>
-                                                            _addApiMealToCalendar(
-                                                              meal,
-                                                            ),
-                                                    child: const Icon(
-                                                      Icons.add_circle,
-                                                      color: Colors.green,
-                                                      size: 20,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(child: Image.network(meal['strMealThumb'], width: double.infinity, fit: BoxFit.cover)),
+                                Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(meal['strMeal'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      Text(index == 0 ? "Entrée" : index == 1 ? "Plat" : "Dessert", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                    ],
                                   ),
                                 ),
-                              );
-                            },
+                              ],
+                            ),
                           ),
-                ),
-              ],
-            ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const Divider(height: 32),
 
-          const Divider(height: 32, thickness: 2),
-
-          // 3. CALENDRIER ET PLANIFICATION
-          _buildCalendar(),
-          const SizedBox(height: 24),
-
-          // Card IA Génération
+          // Générateur IA
           Card(
             elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    "Générer un menu avec l'IA",
-                    style: Theme.of(context).textTheme.titleLarge,
+                  Text("Générer un menu IA", style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: _recipeDifficulty,
+                    decoration: const InputDecoration(labelText: "Difficulté des recettes"),
+                    items: ["Simple", "Normal", "Difficile"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                    onChanged: (v) => setState(() => _recipeDifficulty = v!),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   TextField(
                     controller: _promptController,
-                    decoration: InputDecoration(
-                      labelText: 'Ex: "Menu simple et rapide pour la semaine"',
-                      hintText:
-                          'Décrivez vos préférences, ce que vous avez, etc.',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () => _promptController.clear(),
-                      ),
-                    ),
-                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Préférences (ex: pas de viande)'),
                   ),
                   if (widget.isPremiumUser)
                     CheckboxListTile(
-                      title: const Text(
-                        "Générer la liste de courses",
-                      ),
+                      title: const Text("Créer une liste de courses"),
                       value: _generateShoppingList,
-                      onChanged:
-                          (bool? value) => setState(
-                            () => _generateShoppingList = value ?? false,
-                          ),
-                      controlAffinity: ListTileControlAffinity.leading,
-                      contentPadding: EdgeInsets.zero,
+                      onChanged: (v) => setState(() => _generateShoppingList = v ?? false),
                     ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: _showDailyMenuOptions,
-                          icon: const Icon(Icons.restaurant_menu),
-                          label: const Text('Menu du Jour'),
+                          onPressed: () => _generateMenuWithIA(isWeekly: false),
+                          icon: const Icon(Icons.restaurant),
+                          label: Text(widget.isPremiumUser ? "Menu du Jour" : "Menu TheMealDB (Gratuit)"),
                         ),
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _generateMenuWithIA(isWeekly: true),
-                          icon: const Icon(Icons.date_range),
-                          label: Text(
-                            widget.isPremiumUser
-                                ? 'Menu Semaine'
-                                : 'Semaine (Premium)',
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.teal.shade600,
+                      if (widget.isPremiumUser) ...[
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: () => _generateMenuWithIA(isWeekly: true),
+                            icon: const Icon(Icons.date_range),
+                            label: const Text("Semaine"),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade600),
                           ),
                         ),
-                      ),
+                      ]
                     ],
                   ),
                 ],
               ),
             ),
           ),
-
           const SizedBox(height: 24),
-          if (_selectedDay != null)
-            Text(
-              'Plan de repas pour le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay!)}',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-            ),
+          _buildCalendar(),
+          const SizedBox(height: 24),
+          
+          Text('Plan pour le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay!)}', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          mealsForSelectedDay.isEmpty
-              ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20.0),
-                  child: Text(
-                    "Aucun repas planifié pour ce jour.",
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              )
-              : Column(
-                children:
-                    mealsForSelectedDay
-                        .map((meal) => _buildMealPlanEntryCard(context, meal))
-                        .toList(),
-              ),
+          
+          if (mealsForSelectedDay.isEmpty)
+            const Center(child: Text("Aucun repas planifié pour ce jour.", style: TextStyle(color: Colors.grey)))
+          else ...[
+            _buildMealSection("Petit-déjeuner", groupedMeals[MealType.breakfast]!),
+            _buildMealSection("Déjeuner", groupedMeals[MealType.lunch]!),
+            _buildMealSection("Collation", groupedMeals[MealType.snack]!),
+            _buildMealSection("Dîner", groupedMeals[MealType.dinner]!),
+          ]
         ],
       ),
+    );
+  }
+
+  Widget _buildMealSection(String title, List<MealPlanEntry> meals) {
+    if (meals.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
+        ),
+        ...meals.map((meal) => _buildMealPlanEntryCard(meal)),
+        const SizedBox(height: 16),
+      ],
     );
   }
 
   Widget _buildCalendar() {
     return Card(
       elevation: 4.0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
       child: Padding(
         padding: const EdgeInsets.all(8.0),
         child: TableCalendar(
@@ -12564,92 +12526,58 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
           lastDay: DateTime.utc(2030, 12, 31),
           focusedDay: _focusedDay,
           selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-          onDaySelected: (selectedDay, focusedDay) {
-            setState(() {
-              _selectedDay = selectedDay;
-              _focusedDay = focusedDay;
-            });
-          },
-          calendarStyle: CalendarStyle(
-            todayDecoration: BoxDecoration(
-              color: Colors.grey.shade400,
-              shape: BoxShape.circle,
-            ),
-            selectedDecoration: BoxDecoration(
-              color: Theme.of(context).primaryColor,
-              shape: BoxShape.circle,
-            ),
-            weekendTextStyle: TextStyle(color: Colors.red.shade400),
-            outsideTextStyle: TextStyle(color: Colors.grey.shade400),
-          ),
-          headerStyle: HeaderStyle(
-            formatButtonVisible: false,
-            titleCentered: true,
-            titleTextStyle: Theme.of(context).textTheme.titleLarge!,
-          ),
+          onDaySelected: (selectedDay, focusedDay) => setState(() { _selectedDay = selectedDay; _focusedDay = focusedDay; }),
+          headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
         ),
       ),
     );
   }
 
-  Widget _buildMealPlanEntryCard(BuildContext context, MealPlanEntry meal) {
+  Widget _buildMealPlanEntryCard(MealPlanEntry meal) {
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8.0),
       elevation: 2,
       child: ExpansionTile(
-        leading: Icon(
-          _getMealIcon(meal.mealType),
-          color: Theme.of(context).primaryColor,
-        ),
-        title: Text(
-          meal.mealName,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-        ),
-        subtitle: Text(
-          '${meal.estimatedCalories} kcal - ${meal.mealType.toCapitalizedString()}',
-        ),
+        leading: meal.imageUrl != null
+            ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(meal.imageUrl!, width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (c,e,s) => const Icon(Icons.fastfood)))
+            : const Icon(Icons.restaurant),
+        title: Text(meal.mealName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        subtitle: Text('${meal.estimatedCalories} kcal'),
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16.0, 0, 16.0, 16.0),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  meal.description,
-                  style: const TextStyle(fontSize: 15, color: Colors.grey),
-                ),
+                Text(meal.description, style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 10),
-                Text(
-                  'Macros: ${meal.estimatedProteins.toStringAsFixed(0)}P / ${meal.estimatedCarbs.toStringAsFixed(0)}G / ${meal.estimatedFats.toStringAsFixed(0)}L',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.blueGrey,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 10),
+                Text('Macros: ${meal.estimatedProteins.toStringAsFixed(0)}P / ${meal.estimatedCarbs.toStringAsFixed(0)}G / ${meal.estimatedFats.toStringAsFixed(0)}L', style: const TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.w500)),
+                const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.add_circle_outline),
-                      label: const Text('Ajouter au suivi'),
-                      onPressed: () {
-                        widget.addFoodEntryToTracker(meal.toFoodEntry());
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              '"${meal.mealName}" ajouté à votre suivi du jour.',
-                            ),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.delete, color: Colors.redAccent),
-                      onPressed: () => widget.deleteMealPlanEntry(meal.id),
-                    ),
+                    if (meal.recipeInstructions != null && meal.recipeInstructions!.isNotEmpty)
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.menu_book),
+                        label: const Text('Voir la recette'),
+                        onPressed: () => _showRecipeDialog(meal),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade100, foregroundColor: Colors.orange.shade900),
+                      ),
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.add_circle, color: Colors.green),
+                          tooltip: "Ajouter au suivi",
+                          onPressed: () {
+                            widget.addFoodEntryToTracker(meal.toFoodEntry());
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${meal.mealName} ajouté !")));
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.redAccent),
+                          onPressed: () => widget.deleteMealPlanEntry(meal.id),
+                        ),
+                      ],
+                    )
                   ],
                 ),
               ],
@@ -12658,24 +12586,9 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         ],
       ),
     );
-  }
-
-  IconData _getMealIcon(MealType type) {
-    switch (type) {
-      case MealType.breakfast:
-        return Icons.free_breakfast;
-      case MealType.lunch:
-        return Icons.lunch_dining;
-      case MealType.dinner:
-        return Icons.dinner_dining;
-      case MealType.snack:
-        return Icons.cookie;
-      case MealType.unknown:
-        return Icons.restaurant;
-    }
-  }
 }
 
+}
 class RecipeDetailPage extends StatelessWidget {
   final Map<String, dynamic> mealData;
   final VoidCallback onAdd;
