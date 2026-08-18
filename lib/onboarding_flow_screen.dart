@@ -1,3 +1,4 @@
+import 'package:uuid/uuid.dart';
 // onboarding_flow_screen.dart
 
 import 'dart:math' as math;
@@ -778,6 +779,7 @@ class OnboardingAuthScreen extends StatefulWidget {
 }
 
 class _OnboardingAuthScreenState extends State<OnboardingAuthScreen> {
+  final uuid = const Uuid();
   final AuthService _auth = AuthService();
   final _formKey = GlobalKey<FormState>();
   String _email = '';
@@ -826,6 +828,15 @@ class _OnboardingAuthScreenState extends State<OnboardingAuthScreen> {
 
         final int initialStrictness = _calculateInitialPlanStrictness(widget.onboardingData);
 
+        // 1. Crée la première entrée d'historique d'objectif
+        final initialGoalEntry = GoalHistoryEntry(
+          goalType: widget.onboardingData['weightGoalType'],
+          startWeight: widget.onboardingData['weight'],
+          targetWeight: widget.onboardingData['targetWeight'] ?? widget.onboardingData['weight'],
+          startDate: DateTime.now(),
+          status: GoalStatus.inProgress,
+        );
+
         // MODIFIÉ: Ajout des nouvelles données au constructeur de UserProfile
         final UserProfile finalProfile = UserProfile(
           firstName: _firstName,
@@ -845,12 +856,12 @@ class _OnboardingAuthScreenState extends State<OnboardingAuthScreen> {
           mainMotivation: widget.onboardingData['mainMotivation'],
           dietQuality: widget.onboardingData['dietQuality'],
           planStrictness: initialStrictness,
-          // NOUVEAU
           likesCooking: widget.onboardingData['likesCooking'],
           cookingFrequency: widget.onboardingData['cookingFrequency'],
           likedSports: widget.onboardingData['likedSports'] ?? '',
           dislikedSports: widget.onboardingData['dislikedSports'] ?? '',
           bodyFatPercentage: widget.onboardingData['bodyFatPercentage'],
+          goalHistory: [initialGoalEntry],
         );
 
         double bmr = (finalProfile.gender == 'male')

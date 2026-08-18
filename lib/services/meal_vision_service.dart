@@ -20,8 +20,6 @@ class MealVisionService {
       ]);
 
       final response = await _visionModel.generateContent([content]);
-      
-      // Retourne un JSON structuré ou une analyse détaillée selon le prompt
       return response.text;
     } catch (e) {
       print("Erreur vision Gemini: $e");
@@ -29,15 +27,41 @@ class MealVisionService {
     }
   }
 
-  // Boucle de rétroaction TDEE simple
+  Future<String?> estimatePlateProportions(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final content = Content.multi([
+        TextPart("Analyse cette assiette complète. Identifie chaque aliment (ex: riz, poulet, brocoli) et estime leurs proportions respectives par rapport à la taille totale de l'assiette (ex: 50% légumes, 25% protéines, 25% féculents). Déduis-en les grammes approximatifs et les macros totales. Renvoie un JSON avec les clés : 'ingredients_breakdown', 'proportions_text', 'total_calories', 'total_proteins', 'total_carbs', 'total_fats'."),
+        DataPart('image/jpeg', bytes),
+      ]);
+      final response = await _visionModel.generateContent([content]);
+      return response.text;
+    } catch (e) {
+      print("Erreur estimatePlateProportions: $e");
+      return null;
+    }
+  }
+
+  Future<String?> extractNutritionLabelOCR(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final content = Content.multi([
+        TextPart("Fais une reconnaissance de texte (OCR) sur cette étiquette nutritionnelle. Extrais UNIQUEMENT les valeurs pour 100g. Renvoie strictement un JSON : {'calories': int, 'proteins': double, 'carbs': double, 'fats': double}."),
+        DataPart('image/jpeg', bytes),
+      ]);
+      final response = await _visionModel.generateContent([content]);
+      return response.text;
+    } catch (e) {
+      print("Erreur extractNutritionLabelOCR: $e");
+      return null;
+    }
+  }
+
   double adjustTDEE(double initialTDEE, double expectedWeightLoss, double actualWeightLoss, int days) {
     if (days < 7) return initialTDEE; // Pas assez de données
     
-    // Si l'utilisateur perd moins que prévu, c'est que son métabolisme
-    // est plus lent ou qu'il sous-estime ses portions.
     double difference = expectedWeightLoss - actualWeightLoss;
     
-    // Règle arbitraire : on ajuste de 5% par tranche de 0.5kg de différence sur 2 semaines.
     if (difference > 0.5) {
       return initialTDEE * 0.95; // On réduit de 5%
     } else if (difference < -0.5) {

@@ -1,11 +1,12 @@
-//main.dart
+﻿//main.dart
 import 'dart:io';
 
-// 1. DONNEZ UN ALIAS EXPLICITE À FLUTTER
+// 1. DONNEZ UN ALIAS EXPLICITE Ã€ FLUTTER
 import 'package:flutter/material.dart' as flutter;
-// Gardez aussi l'import normal pour que le reste du fichier fonctionne sans préfixe
+// Gardez aussi l'import normal pour que le reste du fichier fonctionne sans prÃ©fixe
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'screens/menu_planning_tab.dart';
 
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -25,13 +26,15 @@ import 'services/service_locator.dart';
 import 'services/exercise_library_service.dart';
 import 'onboarding_flow_screen.dart';
 
-// Firebase imports... (inchangés)
+// Firebase imports... (inchangÃ©s)
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 
-// NOUVEAU: Notifier global pour le mode de thème (Clair / Sombre / Système)
+// NOUVEAU: Notifier global pour le mode de thÃ¨me (Clair / Sombre / SystÃ¨me)
 final ValueNotifier<ThemeMode> appThemeNotifier = ValueNotifier(
   ThemeMode.system,
 );
@@ -46,9 +49,12 @@ class AppStateProvider extends ChangeNotifier {
     loadData();
   }
 
+  DateTime selectedMonth = DateTime.now();
+
   Future<void> loadData() async {
-    allFoodEntries = await _firestoreService.getCollection<FoodEntry>(
+    allFoodEntries = await _firestoreService.getCollectionForMonth<FoodEntry>(
       'foodEntries',
+      selectedMonth,
       FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
@@ -60,6 +66,17 @@ class AppStateProvider extends ChangeNotifier {
     allWeightEntries = await _firestoreService.getCollection<WeightEntry>(
       'weightEntries',
       WeightEntry.fromFirestore,
+      (e) => e.toFirestore(),
+    );
+    notifyListeners();
+  }
+
+  Future<void> loadFoodEntriesForMonth(DateTime month) async {
+    selectedMonth = month;
+    allFoodEntries = await _firestoreService.getCollectionForMonth<FoodEntry>(
+      'foodEntries',
+      month,
+      FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
     notifyListeners();
@@ -113,20 +130,34 @@ class AppStateProvider extends ChangeNotifier {
   }
 }
 
+// 1. Ajoute cette classe juste au-dessus de void main()
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback =
+          (X509Certificate cert, String host, int port) => true;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 2. AJOUTE CETTE LIGNE ICI (TrÃ¨s important !)
+  if (kDebugMode) { HttpOverrides.global = MyHttpOverrides(); }
+
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeDateFormatting('fr_FR', null);
 
   // Initialisation des services IA et Intelligence Locale
   await SL.initAll();
 
-  // NOUVEAU: Vérifier si l'onboarding est terminé
+  // NOUVEAU: VÃ©rifier si l'onboarding est terminÃ©
   final prefs = await SharedPreferences.getInstance();
   final bool onboardingCompleted =
       prefs.getBool('onboardingCompleted') ?? false;
 
-  // Charger le thème depuis les préférences
+  // Charger le thÃ¨me depuis les prÃ©fÃ©rences
   final String? savedTheme = prefs.getString('app_theme_mode');
   if (savedTheme == 'light') {
     appThemeNotifier.value = ThemeMode.light;
@@ -154,7 +185,7 @@ class NutritionApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           themeMode: currentMode,
 
-          // --- THÈME CLAIR (MODERNE) ---
+          // --- THÃˆME CLAIR (MODERNE) ---
           theme: flutter.ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: flutter.Colors.teal,
@@ -223,7 +254,7 @@ class NutritionApp extends StatelessWidget {
             ),
           ),
 
-          // --- THÈME SOMBRE (MODERNE) ---
+          // --- THÃˆME SOMBRE (MODERNE) ---
           darkTheme: flutter.ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: flutter.Colors.tealAccent,
@@ -331,10 +362,10 @@ class AuthService {
     try {
       UserCredential userCredential = await _auth
           .createUserWithEmailAndPassword(email: email, password: password);
-      // SUPPRIMÉ : La création du document est maintenant gérée par le flow d'onboarding
+      // SUPPRIMÃ‰ : La crÃ©ation du document est maintenant gÃ©rÃ©e par le flow d'onboarding
       // ou par le AuthScreen classique.
 
-      // Laisser l'initialisation de l'abonnement ici est une bonne idée.
+      // Laisser l'initialisation de l'abonnement ici est une bonne idÃ©e.
       await SubscriptionService(
         userId: userCredential.user!.uid,
       )._initializeSubscription();
@@ -392,6 +423,32 @@ class FirestoreService {
       return snapshot.docs.map((doc) => doc.data()).toList();
     } catch (e) {
       print("Error fetching $collectionName: $e");
+      return [];
+    }
+  }
+
+  Future<List<T>> getCollectionForMonth<T>(
+    String collectionName,
+    DateTime focusMonth,
+    T Function(Map<String, dynamic>, String) fromFirestore,
+    Map<String, dynamic> Function(T) toFirestore,
+  ) async {
+    try {
+      final startOfMonth = DateTime(focusMonth.year, focusMonth.month, 1);
+      final endOfMonth = DateTime(focusMonth.year, focusMonth.month + 1, 0, 23, 59, 59);
+
+      final snapshot = await _userCollection<T>(
+        collectionName,
+        fromFirestore,
+        toFirestore,
+      )
+          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
+          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
+          .get();
+
+      return snapshot.docs.map((doc) => doc.data()).toList();
+    } catch (e) {
+      print("Error fetching paginated $collectionName: $e");
       return [];
     }
   }
@@ -564,14 +621,14 @@ class FirestoreService {
     if (userId == null) return;
     try {
       // CORRECTION: Utiliser .set avec merge:true au lieu de .update
-      // Cela crée le document s'il n'existe pas, ou met à jour le champ s'il existe.
+      // Cela crÃ©e le document s'il n'existe pas, ou met Ã  jour le champ s'il existe.
       await _db.collection('users').doc(userId).set({
         'onboardingComplete': true,
       }, SetOptions(merge: true));
       print("Onboarding status set to TRUE for user $userId");
     } catch (e) {
       print("Error setting onboarding complete: $e");
-      // Il est bon de relancer l'erreur pour que le code appelant puisse la gérer si nécessaire
+      // Il est bon de relancer l'erreur pour que le code appelant puisse la gÃ©rer si nÃ©cessaire
       rethrow;
     }
   }
@@ -645,7 +702,7 @@ class UsageTrackerService {
   final String userId;
   int currentStreak = 0;
 
-  // Calcul du bonus : 5 de base + 3 appels supplémentaires tous les 5 jours de série
+  // Calcul du bonus : 5 de base + 3 appels supplÃ©mentaires tous les 5 jours de sÃ©rie
   int get deepSeekLimit => 5 + ((currentStreak ~/ 5) * 3);
 
   UsageTrackerService({required this.userId});
@@ -694,7 +751,7 @@ class UsageTrackerService {
 }
 
 // =============================================================================
-// MODÈLES DE DONNÉES MIS À JOUR (avec fromFirestore et toFirestore)
+// MODÃˆLES DE DONNÃ‰ES MIS Ã€ JOUR (avec fromFirestore et toFirestore)
 // =============================================================================
 
 const uuid = Uuid();
@@ -705,11 +762,11 @@ extension MealTypeExtension on MealType {
   String toCapitalizedString() {
     switch (this) {
       case MealType.breakfast:
-        return 'Petit-déjeuner';
+        return 'Petit-dÃ©jeuner';
       case MealType.lunch:
-        return 'Déjeuner';
+        return 'DÃ©jeuner';
       case MealType.dinner:
-        return 'Dîner';
+        return 'DÃ®ner';
       case MealType.snack:
         return 'Collation';
       case MealType.unknown:
@@ -922,7 +979,7 @@ class DailyGoal {
   Duration? targetFastingDuration;
   double? targetMuscleGain; // NOUVEAU: Objectif de prise de muscle en kg
   double?
-  weeklyEnergyExpenditureGoal; // NOUVEAU: Dépense énergétique hebdomadaire
+  weeklyEnergyExpenditureGoal; // NOUVEAU: DÃ©pense Ã©nergÃ©tique hebdomadaire
 
   DailyGoal({
     this.targetCalories = 2000,
@@ -997,7 +1054,7 @@ class DailyGoal {
       );
 }
 
-// NOUVEAU: Modèle pour l'historique d'un objectif
+// NOUVEAU: ModÃ¨le pour l'historique d'un objectif
 enum GoalStatus { inProgress, achieved, failed }
 
 class GoalHistoryEntry {
@@ -1062,7 +1119,7 @@ class UserProfile {
   List<String> dietaryPreferences;
   List<String> healthConditions;
 
-  // MODIFIÉ: Anciens et nouveaux champs pour les habitudes de vie
+  // MODIFIÃ‰: Anciens et nouveaux champs pour les habitudes de vie
   int mealsPerDay;
   String dietQuality; // 'saine', 'moyenne', 'peu_saine'
   bool tendsToEatSugary;
@@ -1077,7 +1134,7 @@ class UserProfile {
   cookingFrequency; // 'daily', 'few_times_week', 'weekends_only', 'rarely'
   String likedSports;
   String dislikedSports;
-  
+
   double? bodyFatPercentage;
   List<String> availableEquipment;
   bool gymMode;
@@ -1123,22 +1180,27 @@ class UserProfile {
     if (height <= 0) return 0;
     return weight / ((height / 100) * (height / 100));
   }
-  
+
   double? get ffmi {
     if (bodyFatPercentage == null || height <= 0) return null;
     double leanMass = weight * (1 - (bodyFatPercentage! / 100));
     return leanMass / ((height / 100) * (height / 100));
   }
 
+  double? get leanBodyMass {
+    if (bodyFatPercentage == null) return null;
+    return weight * (1 - (bodyFatPercentage! / 100));
+  }
+
   String get bmiCategory {
     final imcValue = bmi;
-    if (imcValue <= 0) return "Données invalides";
+    if (imcValue <= 0) return "DonnÃ©es invalides";
     if (imcValue < 18.5) return "Maigreur";
     if (imcValue < 25) return "Poids normal";
     if (imcValue < 30) return "Surpoids";
-    if (imcValue < 35) return "Obésité modérée (Classe I)";
-    if (imcValue < 40) return "Obésité sévère (Classe II)";
-    return "Obésité morbide (Classe III)";
+    if (imcValue < 35) return "ObÃ©sitÃ© modÃ©rÃ©e (Classe I)";
+    if (imcValue < 40) return "ObÃ©sitÃ© sÃ©vÃ¨re (Classe II)";
+    return "ObÃ©sitÃ© morbide (Classe III)";
   }
 
   bool get isUnderweight => bmi < 18.5;
@@ -1344,7 +1406,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
               (widget.userProfile.height / 100));
 
       if (currentBmi >= 30 && targetBmi < 25) {
-        // Obésité -> Normal
+        // ObÃ©sitÃ© -> Normal
         _recommendationMessage =
             "C'est un super objectif ! Pour y arriver plus sereinement, que diriez-vous de viser d'abord le seuil de surpoids (autour de ${widget.userProfile.maxNormalWeight.toStringAsFixed(1)} kg) ?";
       } else if (currentBmi >= 25 && targetBmi < 18.5) {
@@ -1367,10 +1429,10 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
       (g) => g.status == GoalStatus.achieved,
     );
     if (lastGoalIndex != -1) {
-      // L'ancien objectif est déjà marqué comme 'achieved', pas besoin de le modifier.
+      // L'ancien objectif est dÃ©jÃ  marquÃ© comme 'achieved', pas besoin de le modifier.
     }
 
-    // On crée le nouvel objectif
+    // On crÃ©e le nouvel objectif
     final newGoal = GoalHistoryEntry(
       goalType: _goalType,
       startWeight: widget.userProfile.weight,
@@ -1390,16 +1452,16 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
     try {
       await widget.firestoreService.updateUserProfile(updatedProfile);
       await widget.firestoreService.updateDailyGoals(updatedGoals);
-      widget.onGoalSet(); // Rafraîchit les données dans l'app
+      widget.onGoalSet(); // RafraÃ®chit les donnÃ©es dans l'app
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Nouvel objectif défini ! En route vers le succès !"),
+          content: Text("Nouvel objectif dÃ©fini ! En route vers le succÃ¨s !"),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
       );
     }
@@ -1408,7 +1470,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Définir un nouvel objectif')),
+      appBar: AppBar(title: const Text('DÃ©finir un nouvel objectif')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -1417,13 +1479,13 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'Félicitations pour votre progression ! Quel est votre prochain défi ?',
+                'FÃ©licitations pour votre progression ! Quel est votre prochain dÃ©fi ?',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
               DropdownButtonFormField<String>(
-                value: _goalType,
+                initialValue: _goalType,
                 decoration: const InputDecoration(
                   labelText: 'Mon prochain objectif',
                   border: OutlineInputBorder(),
@@ -1461,11 +1523,11 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
                   if (target == null) return 'Valeur invalide.';
                   if (_goalType == 'lose' &&
                       target >= widget.userProfile.weight) {
-                    return 'La cible doit être inférieure à votre poids actuel.';
+                    return 'La cible doit Ãªtre infÃ©rieure Ã  votre poids actuel.';
                   }
                   if (_goalType == 'gain' &&
                       target <= widget.userProfile.weight) {
-                    return 'La cible doit être supérieure à votre poids actuel.';
+                    return 'La cible doit Ãªtre supÃ©rieure Ã  votre poids actuel.';
                   }
                   return null;
                 },
@@ -1519,6 +1581,7 @@ class MealPlanEntry {
   final int? prepTime;
   final List<String>? utensils;
   final List<String>? ingredients;
+  final String source;
 
   MealPlanEntry({
     String? id,
@@ -1535,6 +1598,7 @@ class MealPlanEntry {
     this.prepTime,
     this.utensils,
     this.ingredients,
+    this.source = 'IA',
   }) : id = id ?? uuid.v4();
 
   FoodEntry toFoodEntry() {
@@ -1547,7 +1611,7 @@ class MealPlanEntry {
       timestamp: date,
       mealType: mealType,
       isAiEstimated: true,
-      source: 'Plan IA',
+      source: source,
     );
   }
 
@@ -1566,6 +1630,7 @@ class MealPlanEntry {
     'prepTime': prepTime,
     'utensils': utensils,
     'ingredients': ingredients,
+    'source': source,
   };
 
   factory MealPlanEntry.fromFirestore(
@@ -1588,13 +1653,12 @@ class MealPlanEntry {
     recipeInstructions: json['recipeInstructions'],
     prepTime: json['prepTime'] as int?,
     utensils:
-      (json['utensils'] as List<dynamic>?)
-        ?.map((e) => e.toString())
-        .toList(),
+        (json['utensils'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
     ingredients:
-      (json['ingredients'] as List<dynamic>?)
-        ?.map((e) => e.toString())
-        .toList(),
+        (json['ingredients'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList(),
+    source: json['source'] ?? 'IA',
   );
 }
 
@@ -1763,12 +1827,13 @@ class AuthWrapper extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.active) {
           final user = snapshot.data;
           if (user == null) {
-            // Si l'utilisateur n'est pas connecté, il va à l'écran de connexion/inscription.
+            // Si l'utilisateur n'est pas connectÃ©, il va Ã  l'Ã©cran de connexion/inscription.
             return const AuthScreen();
           } else {
-            // Si l'utilisateur est connecté, il va DIRECTEMENT à l'application.
+            // Si l'utilisateur est connectÃ©, il va DIRECTEMENT Ã  l'application.
             return ChangeNotifierProvider<AppStateProvider>(
-              create: (_) => AppStateProvider(FirestoreService(userId: user.uid)),
+              create:
+                  (_) => AppStateProvider(FirestoreService(userId: user.uid)),
               child: MyAppTabsWrapper(userId: user.uid),
             );
           }
@@ -1793,11 +1858,11 @@ class _AuthScreenState extends State<AuthScreen> {
   String _email = '';
   String _password = '';
   String _errorMessage = '';
-  // SUPPRIMÉ: La variable _isLogin n'est plus nécessaire, cet écran ne gère que la connexion.
+  // SUPPRIMÃ‰: La variable _isLogin n'est plus nÃ©cessaire, cet Ã©cran ne gÃ¨re que la connexion.
   bool _isLoading = false;
 
-  // CORRECTION: La fonction ne gère plus que la connexion.
-  // Dans main.dart, à l'intérieur de class _AuthScreenState
+  // CORRECTION: La fonction ne gÃ¨re plus que la connexion.
+  // Dans main.dart, Ã  l'intÃ©rieur de class _AuthScreenState
 
   void _submitAuthForm() async {
     if (!_formKey.currentState!.validate()) {
@@ -1816,47 +1881,51 @@ class _AuthScreenState extends State<AuthScreen> {
         _password,
       );
 
-      // 2. Si ça réussit et que le widget est toujours affiché
+      // 2. Si Ã§a rÃ©ussit et que le widget est toujours affichÃ©
       if (userCredential != null && userCredential.user != null && mounted) {
         // IMPORTANT : On signale que l'onboarding est fini (pour les prochaines ouvertures d'app)
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('onboardingCompleted', true);
 
-        // 3. ON FORCE LA NAVIGATION vers l'écran principal
+        // 3. ON FORCE LA NAVIGATION vers l'Ã©cran principal
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
-            builder: (context) => ChangeNotifierProvider<AppStateProvider>(
-              create: (_) => AppStateProvider(FirestoreService(userId: userCredential.user!.uid)),
-              child: MyAppTabsWrapper(userId: userCredential.user!.uid),
-            ),
+            builder:
+                (context) => ChangeNotifierProvider<AppStateProvider>(
+                  create:
+                      (_) => AppStateProvider(
+                        FirestoreService(userId: userCredential.user!.uid),
+                      ),
+                  child: MyAppTabsWrapper(userId: userCredential.user!.uid),
+                ),
           ),
           (route) =>
-              false, // Ceci supprime tous les écrans précédents (login, onboarding) de l'historique
+              false, // Ceci supprime tous les Ã©crans prÃ©cÃ©dents (login, onboarding) de l'historique
         );
       }
     } on FirebaseAuthException catch (e) {
       String msg;
       switch (e.code) {
         case 'user-not-found':
-          msg = 'Aucun compte trouvé pour cet email. Vérifiez votre adresse.';
+          msg = 'Aucun compte trouvÃ© pour cet email. VÃ©rifiez votre adresse.';
           break;
         case 'wrong-password':
         case 'invalid-credential':
-          msg = 'Mot de passe incorrect. Vérifiez vos identifiants.';
+          msg = 'Mot de passe incorrect. VÃ©rifiez vos identifiants.';
           break;
         case 'invalid-email':
           msg = 'Adresse email invalide.';
           break;
         case 'user-disabled':
-          msg = 'Ce compte a été désactivé. Contactez le support.';
+          msg = 'Ce compte a Ã©tÃ© dÃ©sactivÃ©. Contactez le support.';
           break;
         case 'too-many-requests':
-          msg = 'Trop de tentatives. Veuillez réessayer dans quelques minutes.';
+          msg = 'Trop de tentatives. Veuillez rÃ©essayer dans quelques minutes.';
           break;
         default:
           msg =
               e.message ??
-              'Une erreur est survenue. Vérifiez vos identifiants.';
+              'Une erreur est survenue. VÃ©rifiez vos identifiants.';
       }
       setState(() {
         _errorMessage = msg;
@@ -1908,7 +1977,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    // Les champs prénom/nom ont déjà été retirés, ce qui est correct.
+                    // Les champs prÃ©nom/nom ont dÃ©jÃ  Ã©tÃ© retirÃ©s, ce qui est correct.
                     TextFormField(
                       key: const ValueKey('email'),
                       keyboardType: TextInputType.emailAddress,
@@ -1944,7 +2013,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.length < 6) {
-                          return 'Le mot de passe doit contenir au moins 6 caractères.';
+                          return 'Le mot de passe doit contenir au moins 6 caractÃ¨res.';
                         }
                         return null;
                       },
@@ -2038,7 +2107,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   // NOUVEAU: Liste dynamique des onglets
   List<UserTab> _userTabs = [];
 
-  // Map des builders disponibles (pour recréer les onglets à partir de Firestore)
+  // Map des builders disponibles (pour recrÃ©er les onglets Ã  partir de Firestore)
   late Map<String, WidgetBuilder> _availableTabBuilders;
 
   @override
@@ -2058,11 +2127,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         });
       }
     });
-
-    Future.delayed(const Duration(seconds: 5), _checkAndSuggestWeight);
   }
 
-  // --- Gestionnaires d'état pour les listes (avec Firebase) ---
+  // --- Gestionnaires d'Ã©tat pour les listes (avec Firebase) ---
   Future<void> _addFoodEntry(FoodEntry entry) async {
     await _firestoreService.addDocument(
       'foodEntries',
@@ -2070,14 +2137,14 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadFoodEntries(); // Reload data
-    
-    // NOUVEAU : Analyse "Juste-à-Temps" par l'IA locale
+
+    // NOUVEAU : Analyse "Juste-Ã -Temps" par l'IA locale
     await SL.expertSystem.analyzeMealForSpike(entry.carbs);
     await SL.habitService.recordMealTime(entry.name, DateTime.now());
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('"${entry.name}" ajouté au suivi.'),
+        content: Text('"${entry.name}" ajoutÃ© au suivi.'),
         backgroundColor: Colors.green,
       ),
     );
@@ -2091,9 +2158,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadFoodEntries();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Aliment supprimé."),
+        content: Text("Aliment supprimÃ©."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2106,9 +2173,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (s) => s.toFirestore(),
     );
     await _loadFastingSessions();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Session de jeûne enregistrée !"),
+        content: Text("Session de jeÃ»ne enregistrÃ©e !"),
         backgroundColor: Colors.green,
       ),
     );
@@ -2122,9 +2189,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (s) => s.toFirestore(),
     );
     await _loadFastingSessions();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Session de jeûne supprimée."),
+        content: Text("Session de jeÃ»ne supprimÃ©e."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2137,9 +2204,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (p) => p.toFirestore(),
     );
     await _loadScannedProducts();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('"${product.name}" ajouté à l\'historique des scans.'),
+        content: Text('"${product.name}" ajoutÃ© Ã  l\'historique des scans.'),
         backgroundColor: Colors.blue,
       ),
     );
@@ -2153,9 +2220,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (p) => p.toFirestore(),
     );
     await _loadScannedProducts();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Produit scanné supprimé."),
+        content: Text("Produit scannÃ© supprimÃ©."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2178,9 +2245,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadMealPlans();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Repas planifié supprimé."),
+        content: Text("Repas planifiÃ© supprimÃ©."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2193,9 +2260,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadActivities();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Activité "${entry.description}" ajoutée.'),
+        content: Text('ActivitÃ© "${entry.description}" ajoutÃ©e.'),
         backgroundColor: Colors.green,
       ),
     );
@@ -2213,13 +2280,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       final difference = today.difference(lastLogin).inDays;
 
       if (difference == 1) {
-        streak += 1; // Jour consécutif
+        streak += 1; // Jour consÃ©cutif
       } else if (difference > 1) {
-        streak = 1; // Série brisée, on réinitialise à 1
+        streak = 1; // SÃ©rie brisÃ©e, on rÃ©initialise Ã  1
       }
-      // Si difference == 0, l'utilisateur s'est déjà connecté aujourd'hui, on ne change rien.
+      // Si difference == 0, l'utilisateur s'est dÃ©jÃ  connectÃ© aujourd'hui, on ne change rien.
     } else {
-      streak = 1; // Première connexion
+      streak = 1; // PremiÃ¨re connexion
     }
 
     await prefs.setString('lastLoginDate', today.toIso8601String());
@@ -2242,8 +2309,10 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       final steps = await SL.activityService.getTodaySteps();
       if (steps <= 0) return;
 
-      final bool stepEntryExists = _allActivities.any((a) =>
-        isSameDay(a.timestamp, DateTime.now()) && a.activityType == 'Marche_Auto'
+      final bool stepEntryExists = _allActivities.any(
+        (a) =>
+            isSameDay(a.timestamp, DateTime.now()) &&
+            a.activityType == 'Marche_Auto',
       );
 
       if (stepEntryExists) return;
@@ -2271,9 +2340,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadActivities();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Activité supprimée."),
+        content: Text("ActivitÃ© supprimÃ©e."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2300,20 +2369,20 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     }
     await _loadWeightEntries();
 
-    // NOUVEAU: Appel à la vérification d'objectif après l'enregistrement
+    // NOUVEAU: Appel Ã  la vÃ©rification d'objectif aprÃ¨s l'enregistrement
     _checkGoalAchievement(entry.weight);
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistré.',
+          'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistrÃ©.',
         ),
         backgroundColor: Colors.green,
       ),
     );
   }
 
-  // AJOUTEZ ces nouvelles méthodes dans la classe _MyAppTabsWrapperState
+  // AJOUTEZ ces nouvelles mÃ©thodes dans la classe _MyAppTabsWrapperState
   void _checkGoalAchievement(double newWeight) {
     if (_userProfile == null) return;
 
@@ -2352,7 +2421,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         );
 
         _firestoreService.updateUserProfile(updatedProfile).then((_) {
-          _loadUserProfile(); // Recharger le profil pour que l'UI soit à jour
+          _loadUserProfile(); // Recharger le profil pour que l'UI soit Ã  jour
           _showGoalAchievedDialog();
         });
       }
@@ -2368,9 +2437,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       barrierDismissible: false,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('🎉 Félicitations ! 🎉'),
+            title: const Text('ðŸŽ‰ FÃ©licitations ! ðŸŽ‰'),
             content: const Text(
-              'Vous avez atteint votre objectif. Continuez sur cette lancée !',
+              'Vous avez atteint votre objectif. Continuez sur cette lancÃ©e !',
             ),
             actions: [
               ElevatedButton(
@@ -2388,7 +2457,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   void _proposeNewGoal() {
     if (!mounted || _userProfile == null) return;
 
-    // Affiche le nouvel écran minimaliste au lieu de l'écran de profil complet
+    // Affiche le nouvel Ã©cran minimaliste au lieu de l'Ã©cran de profil complet
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -2398,7 +2467,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               currentGoals: _currentGoals,
               firestoreService: _firestoreService,
               onGoalSet:
-                  _onUserProfileUpdated, // La fonction de rafraîchissement est passée en callback
+                  _onUserProfileUpdated, // La fonction de rafraÃ®chissement est passÃ©e en callback
             ),
       ),
     );
@@ -2412,9 +2481,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (w) => w.toFirestore(),
     );
     await _loadWeightEntries();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Poids supprimé."),
+        content: Text("Poids supprimÃ©."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2427,14 +2496,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadWaterEntries();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutés.'),
+        content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutÃ©s.'),
         backgroundColor: Colors.lightBlue,
       ),
     );
   }
-
 
   Future<void> _handleScanProduct(String source) async {
     // 1. On attend une List<String> au lieu d'un String
@@ -2445,7 +2513,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
 
     if (scannedBarcodes == null || scannedBarcodes.isEmpty) return;
 
-    // 2. Si un seul produit a été scanné, comportement classique
+    // 2. Si un seul produit a Ã©tÃ© scannÃ©, comportement classique
     if (scannedBarcodes.length == 1) {
       bool canScan = _isPremium;
       if (!canScan) {
@@ -2454,9 +2522,11 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           canScan = true;
           await _usageTrackerService.incrementScanAnalysis();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Limite de 5 scans IA atteinte (Free). Passez Premium !"),
+              content: Text(
+                "Limite de 5 scans IA atteinte (Free). Passez Premium !",
+              ),
               backgroundColor: Colors.red,
             ),
           );
@@ -2467,73 +2537,41 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       await Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ProductDetailPage(
-            barcode: scannedBarcodes.first,
-            onProductScanned: _addScannedProduct,
-            onAddFoodEntry: _addFoodEntry,
-            isPremiumUser: _isPremium,
-            usageTrackerService: _usageTrackerService,
-          ),
+          builder:
+              (context) => ProductDetailPage(
+                barcode: scannedBarcodes.first,
+                onProductScanned: _addScannedProduct,
+                onAddFoodEntry: _addFoodEntry,
+                isPremiumUser: _isPremium,
+                usageTrackerService: _usageTrackerService,
+              ),
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Traitement de ${scannedBarcodes.length} produits en arrière-plan..."),
+          content: Text(
+            "Traitement de ${scannedBarcodes.length} produits en arriÃ¨re-plan...",
+          ),
           backgroundColor: Colors.teal,
         ),
       );
-      // Ici, tu pourras plus tard boucler sur scannedBarcodes pour les ajouter à un inventaire.
+      // Ici, tu pourras plus tard boucler sur scannedBarcodes pour les ajouter Ã  un inventaire.
     }
   }
 
-  void _checkAndSuggestWeight() {
-    final DateTime today = DateTime.now();
-    final DateTime lastMonday = today.subtract(
-      Duration(days: today.weekday - 1),
-    );
+  // --- Fonctions de chargement des donnÃ©es depuis Firestore ---
+  DateTime _selectedFoodMonth = DateTime.now();
 
-    final bool weightRecordedThisWeek = _allWeightEntries.any(
-      (entry) =>
-          entry.date.isAfter(lastMonday.subtract(const Duration(days: 1))) &&
-          entry.date.isBefore(today.add(const Duration(days: 1))),
-    );
-
-    if (!weightRecordedThisWeek) {
-      final lastWeight =
-          _allWeightEntries.isNotEmpty ? _allWeightEntries.last.weight : 70.0;
-      final suggestedWeight = (lastWeight + Random().nextDouble() * 0.5 - 0.25)
-          .clamp(40.0, 150.0);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "IA: Vous n'avez pas enregistré votre poids cette semaine. Nous estimons un poids de ${suggestedWeight.toStringAsFixed(1)} kg. Pensez à l'enregistrer !",
-          ),
-          backgroundColor: Colors.blueAccent,
-          duration: const Duration(seconds: 7),
-          action: SnackBarAction(
-            label: 'Enregistrer',
-            onPressed: () {
-              if (_tabController != null &&
-                  _userTabs.any((tab) => tab.id == 'evolution')) {
-                final visibleTabs =
-                    _userTabs.where((tab) => tab.isVisible).toList();
-                final index = visibleTabs.indexWhere(
-                  (tab) => tab.id == 'evolution',
-                );
-                if (index != -1) _tabController!.animateTo(index);
-              }
-            },
-          ),
-        ),
-      );
-    }
-  }
-
-  // --- Fonctions de chargement des données depuis Firestore ---
   Future<void> _loadFoodEntries() async {
-    final entries = await _firestoreService.getCollection<FoodEntry>(
+    await _loadFoodEntriesForMonth(_selectedFoodMonth);
+  }
+
+  Future<void> _loadFoodEntriesForMonth(DateTime month) async {
+    _selectedFoodMonth = DateTime(month.year, month.month, 1);
+    final entries = await _firestoreService.getCollectionForMonth<FoodEntry>(
       'foodEntries',
+      _selectedFoodMonth,
       FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
@@ -2620,7 +2658,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     }
   }
 
-  // NOUVEAU: Initialisation des onglets par défaut
+  // NOUVEAU: Initialisation des onglets par dÃ©faut
   List<UserTab> _getDefaultTabs() {
     return [
       UserTab(
@@ -2638,6 +2676,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               allWaterEntries: _allWaterEntries,
               addWaterEntry: _addWaterEntry,
               onScanProduct: _handleScanProduct,
+              onMonthChanged: (selectedMonth) async {
+                await _loadFoodEntriesForMonth(selectedMonth);
+              },
               onViewScanHistory: () {
                 if (_tabController != null &&
                     _userTabs.any((tab) => tab.id == 'scan_history')) {
@@ -2673,7 +2714,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'fasting',
-        title: 'Jeûne',
+        title: 'JeÃ»ne',
         icon: Icons.watch_later_outlined,
         builder:
             (context) =>
@@ -2691,7 +2732,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'activities',
-        title: 'Activités',
+        title: 'ActivitÃ©s',
         icon: Icons.fitness_center,
         builder:
             (context) => ActivitiesTab(
@@ -2706,7 +2747,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'evolution',
-        title: 'Évolution',
+        title: 'Ã‰volution',
         icon: Icons.show_chart,
         builder:
             (context) => EvolutionTab(
@@ -2716,7 +2757,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               currentGoals: _currentGoals,
               isPremiumUser: _isPremium,
               usageTrackerService: _usageTrackerService,
-              // PARAMÈTRES CORRIGÉS
+              // PARAMÃˆTRES CORRIGÃ‰S
               userProfile: _userProfile,
               allFoodEntries: _allFoodEntries,
             ),
@@ -2782,6 +2823,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             allWaterEntries: _allWaterEntries,
             addWaterEntry: _addWaterEntry,
             onScanProduct: _handleScanProduct,
+            onMonthChanged: (selectedMonth) async {
+              await _loadFoodEntriesForMonth(selectedMonth);
+            },
             onViewScanHistory: () {
               if (_tabController != null &&
                   _userTabs.any((tab) => tab.id == 'scan_history')) {
@@ -2840,7 +2884,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             currentGoals: _currentGoals,
             isPremiumUser: _isPremium,
             usageTrackerService: _usageTrackerService,
-            // PARAMÈTRES CORRIGÉS
+            // PARAMÃˆTRES CORRIGÃ‰S
             userProfile: _userProfile,
             allFoodEntries: _allFoodEntries,
           ),
@@ -3003,13 +3047,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('Thème de l\'application'),
+          title: const Text('ThÃ¨me de l\'application'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
                 leading: const Icon(Icons.brightness_auto),
-                title: const Text('Système'),
+                title: const Text('SystÃ¨me'),
                 onTap: () async {
                   appThemeNotifier.value = ThemeMode.system;
                   final prefs = await SharedPreferences.getInstance();
@@ -3057,9 +3101,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           (ctx) => AlertDialog(
             title: Row(
               children: [
-                const Text('🔥 '),
+                const Text('ðŸ”¥ '),
                 Text(
-                  'Série Actuelle : $_currentStreak j',
+                  'SÃ©rie Actuelle : $_currentStreak j',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -3069,10 +3113,14 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  "Maintenez votre série en vous connectant chaque jour pour gagner des récompenses !",
+                  "Maintenez votre sÃ©rie en vous connectant chaque jour pour gagner des rÃ©compenses !",
                 ),
                 const SizedBox(height: 16),
-                _buildRewardItem(3, '1 appel IA bonus / jour', _currentStreak >= 3),
+                _buildRewardItem(
+                  3,
+                  '1 appel IA bonus / jour',
+                  _currentStreak >= 3,
+                ),
                 _buildRewardItem(
                   7,
                   '3 appels IA bonus / jour',
@@ -3138,8 +3186,8 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     if (_tabsLoading || _tabController == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    
-    // Mettre à jour le streak dans le tracker d'usage
+
+    // Mettre Ã  jour le streak dans le tracker d'usage
     _usageTrackerService.currentStreak = _currentStreak;
 
     final List<UserTab> visibleTabs =
@@ -3205,7 +3253,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           child: Padding(
             padding: EdgeInsets.all(20.0),
             child: Text(
-              "Aucun onglet visible. Veuillez gérer vos onglets via le menu en haut à droite pour les afficher.",
+              "Aucun onglet visible. Veuillez gÃ©rer vos onglets via le menu en haut Ã  droite pour les afficher.",
               style: TextStyle(fontSize: 18, color: Colors.grey),
               textAlign: TextAlign.center,
             ),
@@ -3260,7 +3308,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
                     ),
                     child: Row(
                       children: [
-                        const Text('🔥', style: TextStyle(fontSize: 16)),
+                        const Text('ðŸ”¥', style: TextStyle(fontSize: 16)),
                         const SizedBox(width: 4),
                         Text(
                           '$_currentStreak j',
@@ -3381,7 +3429,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
         _currentTabs.where((tab) => !tab.isVisible).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Gérer les Onglets')),
+      appBar: AppBar(title: const Text('GÃ©rer les Onglets')),
       body: Column(
         children: [
           Expanded(
@@ -3392,7 +3440,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
               header: Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: Text(
-                  'Onglets Visibles (maintenez et glissez pour réorganiser)',
+                  'Onglets Visibles (maintenez et glissez pour rÃ©organiser)',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -3423,7 +3471,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
               vertical: 8.0,
             ),
             child: Text(
-              'Onglets Cachés (cochez pour rendre visible)',
+              'Onglets CachÃ©s (cochez pour rendre visible)',
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
@@ -3444,7 +3492,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
                     },
                     secondary: Icon(tab.icon),
                     title: Text(tab.title),
-                    subtitle: const Text('Caché'),
+                    subtitle: const Text('CachÃ©'),
                     controlAffinity: ListTileControlAffinity.leading,
                   ),
                 );
@@ -3469,7 +3517,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
 // Onglet Tableau de Bord (DashboardTab)
 // =============================================================================
 // =============================================================================
-// Onglet Tableau de Bord (DashboardTab) - VERSION COMPLÈTE RÉÉCRITE
+// Onglet Tableau de Bord (DashboardTab) - VERSION COMPLÃˆTE RÃ‰Ã‰CRITE
 // =============================================================================
 class DashboardTab extends StatefulWidget {
   final List<FoodEntry> allFoodEntries;
@@ -3482,6 +3530,7 @@ class DashboardTab extends StatefulWidget {
   final Function(WaterEntry) addWaterEntry;
   final Function(String) onScanProduct;
   final VoidCallback onViewScanHistory;
+  final ValueChanged<DateTime> onMonthChanged;
   final int foodEntriesCount;
   final int activityEntriesCount;
   final UserProfile? userProfile;
@@ -3500,6 +3549,7 @@ class DashboardTab extends StatefulWidget {
     required this.addWaterEntry,
     required this.onScanProduct,
     required this.onViewScanHistory,
+    required this.onMonthChanged,
     required this.foodEntriesCount,
     required this.activityEntriesCount,
     required this.userProfile,
@@ -3515,11 +3565,11 @@ class _DashboardTabState extends State<DashboardTab> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  // NOUVEAU: États pour l'analyse IA Globale
+  // NOUVEAU: Ã‰tats pour l'analyse IA Globale
   bool _isAnalyzingGlobal = false;
   Map<String, dynamic>? _globalAiAnalysisResult;
 
-  // NOUVEAU: États pour le défi du jour par l'IA
+  // NOUVEAU: Ã‰tats pour le dÃ©fi du jour par l'IA
   bool _isLoadingDailyChallenge = false;
   Map<String, dynamic>? _dailyChallengeResult;
   bool _isDailyChallengeCompleted = false;
@@ -3574,73 +3624,67 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   Map<String, dynamic> _getGoalAdherence() {
-    // Calcul de la progression globale vers l'objectif
     double percentage = 0.0;
-    String message =
-        "Commencez à suivre vos données pour voir votre progression !";
+    String message = "Commencez à suivre vos données pour voir votre progression !";
     bool goalReached = false;
 
-    if (widget.userProfile != null &&
-        widget.userProfile!.goalHistory.isNotEmpty) {
+    if (widget.userProfile != null && widget.userProfile!.goalHistory.isNotEmpty) {
       final currentGoal = widget.userProfile!.goalHistory.lastWhereOrNull(
         (g) => g.status == GoalStatus.inProgress,
       );
 
-      if (currentGoal != null && widget.allWeightEntries.isNotEmpty) {
-        final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
-          ..sort((a, b) => a.date.compareTo(b.date));
-        final currentWeight = sortedEntries.last.weight;
+      if (currentGoal != null) {
+        double currentWeight = widget.userProfile!.weight;
+        
+        if (widget.allWeightEntries.isNotEmpty) {
+          final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
+            ..sort((a, b) => a.date.compareTo(b.date));
+          currentWeight = sortedEntries.last.weight;
+        }
 
         final startWeight = currentGoal.startWeight;
         final targetWeight = currentGoal.targetWeight;
 
         if (currentGoal.goalType == 'lose') {
           if (startWeight > targetWeight) {
-            percentage = ((startWeight - currentWeight) /
-                    (startWeight - targetWeight) *
-                    100)
-                .clamp(0, 100);
+            percentage = ((startWeight - currentWeight) / (startWeight - targetWeight) * 100).clamp(0, 100).toDouble();
           }
           if (currentWeight <= targetWeight) goalReached = true;
         } else if (currentGoal.goalType == 'gain') {
           if (targetWeight > startWeight) {
-            percentage = ((currentWeight - startWeight) /
-                    (targetWeight - startWeight) *
-                    100)
-                .clamp(0, 100);
+            percentage = ((currentWeight - startWeight) / (targetWeight - startWeight) * 100).clamp(0, 100).toDouble();
           }
           if (currentWeight >= targetWeight) goalReached = true;
         } else {
-          // Pour un maintien, on vérifie si on est proche de l'objectif
           final diff = (currentWeight - targetWeight).abs();
-          percentage = (100 - (diff * 10)).clamp(
-            0,
-            100,
-          ); // Ex: 1kg d'écart = 90%
-          goalReached =
-              false; // "Maintain" n'est jamais vraiment "atteint" ou terminé
+          percentage = (100 - (diff * 10)).clamp(0, 100).toDouble(); // 1kg d'écart = 90%
+          
+          if (percentage >= 90) {
+            message = "Équilibre parfait ! Vous maintenez votre poids idéal.";
+          } else {
+            message = "Attention, vous vous éloignez de votre zone de maintien.";
+          }
+          goalReached = false; 
         }
 
-        if (goalReached) {
-          message =
-              "🎉 Félicitations ! Objectif atteint ! Il est temps de vous fixer un nouveau défi.";
+        if (goalReached && currentGoal.goalType != 'maintain') {
+          message = "🎉 Félicitations ! Objectif atteint !";
           percentage = 100.0;
-        } else if (percentage >= 85) {
-          message =
-              "Excellent ! Vous êtes très proche de votre objectif final.";
-        } else if (percentage >= 50) {
-          message = "Vous avez fait plus de la moitié du chemin. Continuez !";
-        } else if (percentage > 0) {
-          message = "Vous êtes sur la bonne voie. Restez motivé !";
-        } else {
-          message = "L'aventure commence ! Suivez votre plan pour progresser.";
+        } else if (currentGoal.goalType != 'maintain') {
+          if (percentage >= 85) {
+            message = "Excellent ! Vous êtes très proche de votre objectif final.";
+          } else if (percentage >= 50) {
+            message = "Vous avez fait plus de la moitié du chemin. Continuez !";
+          } else if (percentage > 0) {
+            message = "Vous êtes sur la bonne voie. Restez motivé !";
+          }
         }
       }
     }
 
     return {
       'percentage': percentage,
-      'delayDays': 0, // Ignoré dans la nouvelle UI, gardé pour la compat
+      'delayDays': 0,
       'message': message,
       'goalReached': goalReached,
     };
@@ -3649,7 +3693,7 @@ class _DashboardTabState extends State<DashboardTab> {
   // NOUVEAU: Logique pour estimer le temps avant d'atteindre l'objectif de poids
   String _getGoalTimeProjection() {
     if (widget.allWeightEntries.length < 2 || widget.userProfile == null) {
-      return 'Données insuffisantes.';
+      return 'DonnÃ©es insuffisantes.';
     }
 
     final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
@@ -3657,7 +3701,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final currentWeight = sortedEntries.last.weight;
     final goalType = widget.currentGoals.weightGoalType;
 
-    // Calcul du rythme de progression réel basé sur les 2 dernières semaines
+    // Calcul du rythme de progression rÃ©el basÃ© sur les 2 derniÃ¨res semaines
     double weeklyChangeRate = 0;
     final twoWeeksAgo = DateTime.now().subtract(const Duration(days: 14));
     final entryTwoWeeksAgo = sortedEntries.lastWhereOrNull(
@@ -3672,7 +3716,7 @@ class _DashboardTabState extends State<DashboardTab> {
       }
     }
 
-    // Si pas de changement récent, on prend une valeur saine par défaut pour la projection
+    // Si pas de changement rÃ©cent, on prend une valeur saine par dÃ©faut pour la projection
     if (weeklyChangeRate == 0) {
       weeklyChangeRate =
           goalType == 'lose' ? -0.5 : (goalType == 'gain' ? 0.2 : 0);
@@ -3698,7 +3742,7 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  // NOUVEAU: Logique pour la dépense énergétique hebdomadaire
+  // NOUVEAU: Logique pour la dÃ©pense Ã©nergÃ©tique hebdomadaire
   Map<String, double> _getWeeklyEnergyExpenditure() {
     final now = DateTime.now();
     // Assure que le Lundi est bien le premier jour de la semaine
@@ -3823,9 +3867,9 @@ class _DashboardTabState extends State<DashboardTab> {
     final envSummary = _getEnvironmentalImpactSummary(_selectedDay!);
     if (envSummary['hasData']) {
       final ecoScoreGrade = envSummary['eco_score_grade'];
-      if (ecoScoreGrade == 'A')
+      if (ecoScoreGrade == 'A') {
         score += 20;
-      else if (ecoScoreGrade == 'B')
+      } else if (ecoScoreGrade == 'B')
         score += 15;
       else if (ecoScoreGrade == 'C')
         score += 10;
@@ -3837,7 +3881,7 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   Map<String, dynamic> _getAILifestyleScore() {
-    // Si une véritable analyse IA globale est disponible, on l'utilise
+    // Si une vÃ©ritable analyse IA globale est disponible, on l'utilise
     if (_globalAiAnalysisResult != null) {
       return {
         'hasData': true,
@@ -3845,7 +3889,7 @@ class _DashboardTabState extends State<DashboardTab> {
             _globalAiAnalysisResult!['score'] ??
             _calculateManualLifestyleScore(),
         'comment': _globalAiAnalysisResult!['comment'] ?? "Aucun commentaire.",
-        'reliability': '95', // L'IA DeepSeek est très fiable
+        'reliability': '95', // L'IA DeepSeek est trÃ¨s fiable
         'isRealAI': true,
       };
     }
@@ -3855,32 +3899,32 @@ class _DashboardTabState extends State<DashboardTab> {
       return {
         'hasData': false,
         'score': 0,
-        'comment': 'Ajoutez des données pour obtenir une analyse.',
+        'comment': 'Ajoutez des donnÃ©es pour obtenir une analyse.',
         'reliability': '0',
         'isRealAI': false,
       };
     }
 
-    // Affichage d'un conseil générique en attendant la vraie IA
+    // Affichage d'un conseil gÃ©nÃ©rique en attendant la vraie IA
     String genericComment;
-    if (manualScore > 80)
+    if (manualScore > 80) {
       genericComment =
-          "Excellent ! Vos indicateurs récents sont très positifs.";
-    else if (manualScore > 60)
+          "Excellent ! Vos indicateurs rÃ©cents sont trÃ¨s positifs.";
+    } else if (manualScore > 60)
       genericComment =
           "Bon niveau. Quelques ajustements pourraient vous faire progresser.";
     else if (manualScore > 40)
       genericComment =
-          "Niveau moyen. Essayez d'améliorer votre alimentation ou activité.";
+          "Niveau moyen. Essayez d'amÃ©liorer votre alimentation ou activitÃ©.";
     else
       genericComment =
-          "Attention, vos données indiquent qu'un meilleur suivi serait bénéfique.";
+          "Attention, vos donnÃ©es indiquent qu'un meilleur suivi serait bÃ©nÃ©fique.";
 
     return {
       'hasData': true,
       'score': manualScore,
       'comment': genericComment,
-      'reliability': 'Basée sur un calcul basique.',
+      'reliability': 'BasÃ©e sur un calcul basique.',
       'isRealAI': false,
     };
   }
@@ -3888,10 +3932,10 @@ class _DashboardTabState extends State<DashboardTab> {
   Future<void> _generateGlobalAIAnalysis() async {
     final manualScore = _calculateManualLifestyleScore();
     if (manualScore == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Oups, veuillez ajouter quelques données (repas, eau, etc.) avant de lancer l'analyse IA.",
+            "Oups, veuillez ajouter quelques donnÃ©es (repas, eau, etc.) avant de lancer l'analyse IA.",
           ),
         ),
       );
@@ -3902,7 +3946,7 @@ class _DashboardTabState extends State<DashboardTab> {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
               "Limite d'appels IA atteinte pour aujourd'hui. Passez Premium !",
@@ -3922,10 +3966,10 @@ class _DashboardTabState extends State<DashboardTab> {
       final profileStr =
           info != null
               ? "${info.age} ans, ${info.gender}, ${info.weight}kg pour ${info.height}cm."
-              : "Profil non renseigné.";
+              : "Profil non renseignÃ©.";
       final goalStr = widget.currentGoals.weightGoalType;
 
-      // Extraction de toutes les données du jour pour les envoyer à l'IA
+      // Extraction de toutes les donnÃ©es du jour pour les envoyer Ã  l'IA
       final dailyNutritionSummary = _getDailyNutritionSummary(
         _selectedDay ?? DateTime.now(),
       );
@@ -3944,27 +3988,27 @@ class _DashboardTabState extends State<DashboardTab> {
           );
       final String fastingStateStr =
           activeFastingSession != null
-              ? "En cours jusqu'à \${DateFormat('HH:mm').format(activeFastingSession.endTime)}"
-              : "Aucun jeûne en cours";
+              ? "En cours jusqu'Ã  \${DateFormat('HH:mm').format(activeFastingSession.endTime)}"
+              : "Aucun jeÃ»ne en cours";
 
       final String prompt = '''
-      Tu es l'IA globale de l'application de santé. Tu croises toutes les données de l'utilisateur pour lui fournir un bilan quotidien pointu.
+      Tu es l'IA globale de l'application de santÃ©. Tu croises toutes les donnÃ©es de l'utilisateur pour lui fournir un bilan quotidien pointu.
       
       PROFIL: $profileStr
-      OBJECTIF ACTUEL: $goalStr (Calories visées: ${widget.currentGoals.targetCalories} kcal)
+      OBJECTIF ACTUEL: $goalStr (Calories visÃ©es: ${widget.currentGoals.targetCalories} kcal)
       
       BILAN DU JOUR (CROSS-ONGLETS) :
-      - Nutrition : ${dailyNutritionSummary['calories']?.toInt()} kcal consommées (Protéines: ${dailyNutritionSummary['proteins']?.toInt()}g, Glucides: ${dailyNutritionSummary['carbs']?.toInt()}g, Lipides: ${dailyNutritionSummary['fats']?.toInt()}g)
+      - Nutrition : ${dailyNutritionSummary['calories']?.toInt()} kcal consommÃ©es (ProtÃ©ines: ${dailyNutritionSummary['proteins']?.toInt()}g, Glucides: ${dailyNutritionSummary['carbs']?.toInt()}g, Lipides: ${dailyNutritionSummary['fats']?.toInt()}g)
       - Eau bue : $dailyWaterActivity Litres sur un objectif de ${widget.currentGoals.targetWater}L
-      - Sport/Activité : $caloriesBurned kcal brûlées
-      - Jeûne : $fastingStateStr
+      - Sport/ActivitÃ© : $caloriesBurned kcal brÃ»lÃ©es
+      - JeÃ»ne : $fastingStateStr
       
       CONSIGNES:
-      - Mets en lien ses repas avec ses dépenses sportives, sa consommation d'eau, son jeûne éventuel, et l'objectif visé.
-      - Évalue la synergie entre tous ces domaines (les onglets de l'application) et l'objectif visé.
-      - Propose une action concrète à faire pour optimiser demain (ex: "prévois un jeûne plus court si tu as beaucoup de sport de prévu", "bois un peu plus d'eau pour compenser tes efforts", etc).
-      - Donne une note globale sur 100 de son style de vie aujourd'hui en étant strict mais juste.
-      - Sois encourageant et précis.
+      - Mets en lien ses repas avec ses dÃ©penses sportives, sa consommation d'eau, son jeÃ»ne Ã©ventuel, et l'objectif visÃ©.
+      - Ã‰value la synergie entre tous ces domaines (les onglets de l'application) et l'objectif visÃ©.
+      - Propose une action concrÃ¨te Ã  faire pour optimiser demain (ex: "prÃ©vois un jeÃ»ne plus court si tu as beaucoup de sport de prÃ©vu", "bois un peu plus d'eau pour compenser tes efforts", etc).
+      - Donne une note globale sur 100 de son style de vie aujourd'hui en Ã©tant strict mais juste.
+      - Sois encourageant et prÃ©cis.
       
       Retourne un JSON strict comme ceci:
       {
@@ -3984,12 +4028,12 @@ class _DashboardTabState extends State<DashboardTab> {
           _globalAiAnalysisResult = result;
         });
       } else {
-        throw Exception('Réponse IA vide');
+        throw Exception('RÃ©ponse IA vide');
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Oups, l'IA a rencontré une erreur: $e"),
+          content: Text("Oups, l'IA a rencontrÃ© une erreur: $e"),
           backgroundColor: Colors.red,
         ),
       );
@@ -3998,13 +4042,13 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  // NOUVELLE FONCTIONNALITÉ: Génération du défi quotidien par l'IA
+  // NOUVELLE FONCTIONNALITÃ‰: GÃ©nÃ©ration du dÃ©fi quotidien par l'IA
   Future<void> _generateDailyChallengeWithAI() async {
     if (!widget.isPremiumUser) {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
             backgroundColor: Colors.red,
@@ -4023,16 +4067,16 @@ class _DashboardTabState extends State<DashboardTab> {
       final goalStr = widget.currentGoals.weightGoalType;
 
       final String prompt = '''
-      Tu es un coach sportif et bien-être ultra-motivant et créatif.
+      Tu es un coach sportif et bien-Ãªtre ultra-motivant et crÃ©atif.
       Profil : $profileStr, Objectif : $goalStr.
       
-      Propose un PETIT DÉFI UNIQUE, inattendu et faisable aujourd'hui en moins de 5 minutes.
-      Exemples: "Faire 15 squats avant le déjeuner", "Boire 1 grand verre d'eau au réveil", "Faire 3 minutes d'étirement en respirant profondément", "Remplacer sa collation par un fruit".
-      Ne donne qu'un seul défi, simple à actionner pour donner un sentiment d'accomplissement (gamification).
+      Propose un PETIT DÃ‰FI UNIQUE, inattendu et faisable aujourd'hui en moins de 5 minutes.
+      Exemples: "Faire 15 squats avant le dÃ©jeuner", "Boire 1 grand verre d'eau au rÃ©veil", "Faire 3 minutes d'Ã©tirement en respirant profondÃ©ment", "Remplacer sa collation par un fruit".
+      Ne donne qu'un seul dÃ©fi, simple Ã  actionner pour donner un sentiment d'accomplissement (gamification).
       
       Retourne UNIQUEMENT du JSON strict :
       {
-        "title": "Titre très court et dynamique",
+        "title": "Titre trÃ¨s court et dynamique",
         "description": "Explication rapide de comment le faire",
         "difficulty": "Facile, Moyen ou Difficile"
       }
@@ -4052,7 +4096,7 @@ class _DashboardTabState extends State<DashboardTab> {
         await _saveDailyChallengeState();
       }
     } catch (e) {
-      print("Erreur création défi: $e");
+      print("Erreur crÃ©ation dÃ©fi: $e");
     } finally {
       if (mounted) setState(() => _isLoadingDailyChallenge = false);
     }
@@ -4066,7 +4110,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final envSummary = _getEnvironmentalImpactSummary(_selectedDay!);
     final aiLifestyleData = _getAILifestyleScore();
     final manualLifestyleScore = _calculateManualLifestyleScore();
-    // NOUVEAU: Récupération des données hebdomadaires
+    // NOUVEAU: RÃ©cupÃ©ration des donnÃ©es hebdomadaires
     final weeklyEnergyData = _getWeeklyEnergyExpenditure();
     final goalAdherenceData = _getGoalAdherence();
 
@@ -4084,7 +4128,7 @@ class _DashboardTabState extends State<DashboardTab> {
     return Scaffold(
       body: ListView(
         children: [
-          // En-tête : date, kcal net, scanner
+          // En-tÃªte : date, kcal net, scanner
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -4102,9 +4146,9 @@ class _DashboardTabState extends State<DashboardTab> {
               children: [
                 Text(
                   DateFormat('EEEE d MMMM', 'fr_FR').format(_selectedDay!),
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white70,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(color: Colors.white70),
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 8),
@@ -4116,10 +4160,10 @@ class _DashboardTabState extends State<DashboardTab> {
                   ),
                 ),
                 Text(
-                  '($consumedCalories ingérés − ${dailyCaloriesBurned.toInt()} brûlés)',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.white70,
-                  ),
+                  '($consumedCalories ingÃ©rÃ©s âˆ’ ${dailyCaloriesBurned.toInt()} brÃ»lÃ©s)',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton.icon(
@@ -4142,85 +4186,88 @@ class _DashboardTabState extends State<DashboardTab> {
               children: [
                 _buildCalendar(),
                 const SizedBox(height: 24),
-                    // NOUVEAU: Le défi du jour généré par IA
-                    _buildDailyChallengeCard(context),
-                    const SizedBox(height: 24),
-                    // NOUVEAU: Ajout du widget de suivi du programme ici
-                    _buildGoalAdherenceCard(
-                      context,
-                      percentage: goalAdherenceData['percentage'],
-                      delayDays: goalAdherenceData['delayDays'],
-                      message: goalAdherenceData['message'],
-                      goalReached: goalAdherenceData['goalReached'] ?? false,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Récapitulatif Quotidien',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDailyRecapCard(
-                      context: context,
-                      caloriesConsumed: consumedCalories,
-                      caloriesBurned: dailyCaloriesBurned.toInt(),
-                      waterConsumed: dailyWaterConsumption,
-                      waterTarget: widget.currentGoals.targetWater,
-                      ecoScoreGrade: envSummary['eco_score_grade'],
-                    ),
-                    const SizedBox(height: 24),
-                    // NOUVEAU: Ajout de la carte de dépense énergétique hebdomadaire
-                    _buildWeeklyExpenditureCard(context, weeklyEnergyData),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Progression Nutritionnelle',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildCaloriesProgressCard(
-                      context,
-                      consumedCalories,
-                      targetCalories,
-                    ),
-                    const SizedBox(height: 16),
-                    _buildMacrosGraphCard(
-                      context,
-                      dailyNutritionSummary['proteins']!,
-                      widget.currentGoals.targetProteins,
-                      dailyNutritionSummary['carbs']!,
-                      widget.currentGoals.targetCarbs,
-                      dailyNutritionSummary['fats']!,
-                      widget.currentGoals.targetFats,
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Objectifs & Impact',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildWeightGoalCard(context),
-                    const SizedBox(height: 16),
-                    _buildImpactCard(context, envSummary),
-                    const SizedBox(height: 16),
-                    _buildFastingSummaryCard(context, activeFastingSession),
-                    const SizedBox(height: 24),
-                    _buildLifestyleScoreCard(
-                      context: context,
-                      hasData: aiLifestyleData['hasData'],
-                      aiScore: aiLifestyleData['score'],
-                      aiComment: aiLifestyleData['comment'],
-                      aiReliability: aiLifestyleData['reliability'],
-                      manualScore: manualLifestyleScore,
-                      isRealAI: aiLifestyleData['isRealAI'] ?? false,
-                    ),
-                  ],
+                // NOUVEAU: Le dÃ©fi du jour gÃ©nÃ©rÃ© par IA
+                _buildDailyChallengeCard(context),
+                const SizedBox(height: 24),
+                // NOUVEAU: Ajout du widget de suivi du programme ici
+                _buildGoalAdherenceCard(
+                  context,
+                  percentage: goalAdherenceData['percentage'],
+                  delayDays: goalAdherenceData['delayDays'],
+                  message: goalAdherenceData['message'],
+                  goalReached: goalAdherenceData['goalReached'] ?? false,
                 ),
-              ),
-              const SizedBox(height: 80),
-            ],
+                const SizedBox(height: 24),
+                Text(
+                  'RÃ©capitulatif Quotidien',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildDailyRecapCard(
+                  context: context,
+                  caloriesConsumed: consumedCalories,
+                  caloriesBurned: dailyCaloriesBurned.toInt(),
+                  waterConsumed: dailyWaterConsumption,
+                  waterTarget: widget.currentGoals.targetWater,
+                  ecoScoreGrade: envSummary['eco_score_grade'],
+                ),
+                const SizedBox(height: 24),
+                // NOUVEAU: Ajout de la carte de dÃ©pense Ã©nergÃ©tique hebdomadaire
+                _buildWeeklyExpenditureCard(context, weeklyEnergyData),
+                const SizedBox(height: 24),
+                Text(
+                  'Progression Nutritionnelle',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildCaloriesProgressCard(
+                  context,
+                  consumedCalories,
+                  targetCalories,
+                ),
+                const SizedBox(height: 16),
+                _buildMacrosGraphCard(
+                  context,
+                  dailyNutritionSummary['proteins']!,
+                  widget.currentGoals.targetProteins,
+                  dailyNutritionSummary['carbs']!,
+                  widget.currentGoals.targetCarbs,
+                  dailyNutritionSummary['fats']!,
+                  widget.currentGoals.targetFats,
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Objectifs & Impact',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildWeightGoalCard(context),
+                const SizedBox(height: 16),
+                _buildImpactCard(context, envSummary),
+                const SizedBox(height: 16),
+                _buildFastingSummaryCard(context, activeFastingSession),
+                const SizedBox(height: 24),
+                _buildLifestyleScoreCard(
+                  context: context,
+                  hasData: aiLifestyleData['hasData'],
+                  aiScore: aiLifestyleData['score'],
+                  aiComment: aiLifestyleData['comment'],
+                  aiReliability: aiLifestyleData['reliability'],
+                  manualScore: manualLifestyleScore,
+                  isRealAI: aiLifestyleData['isRealAI'] ?? false,
+                ),
+              ],
+            ),
           ),
+          const SizedBox(height: 80),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: widget.onViewScanHistory,
         icon: const Icon(Icons.history),
@@ -4230,7 +4277,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // NOUVELLE FONCTIONNALITÉ: Le widget du Défi du Jour Gamifié
+  // NOUVELLE FONCTIONNALITÃ‰: Le widget du DÃ©fi du Jour GamifiÃ©
   Widget _buildDailyChallengeCard(BuildContext context) {
     if (_dailyChallengeResult == null && !_isLoadingDailyChallenge) {
       return Card(
@@ -4255,7 +4302,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "Défi du Jour IA",
+                        "DÃ©fi du Jour IA",
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -4263,7 +4310,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         ),
                       ),
                       Text(
-                        "Cliquez ici pour générer votre défi !",
+                        "Cliquez ici pour gÃ©nÃ©rer votre dÃ©fi !",
                         style: TextStyle(
                           color: Color(0xFF6A1B9A), // purple.shade800
                           fontWeight: FontWeight.w500,
@@ -4292,7 +4339,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 CircularProgressIndicator(color: Colors.purple),
                 SizedBox(height: 16),
                 Text(
-                  "L'IA prépare votre défi du jour...",
+                  "L'IA prÃ©pare votre dÃ©fi du jour...",
                   style: TextStyle(color: Colors.grey),
                 ),
               ],
@@ -4302,7 +4349,7 @@ class _DashboardTabState extends State<DashboardTab> {
       );
     }
 
-    final title = _dailyChallengeResult!['title'] ?? "Défi mystère";
+    final title = _dailyChallengeResult!['title'] ?? "DÃ©fi mystÃ¨re";
     final desc = _dailyChallengeResult!['description'] ?? "";
     final diff = _dailyChallengeResult!['difficulty'] ?? "Moyen";
 
@@ -4346,7 +4393,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                     const SizedBox(width: 8),
                     const Text(
-                      "Défi Quotidien",
+                      "DÃ©fi Quotidien",
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -4405,10 +4452,10 @@ class _DashboardTabState extends State<DashboardTab> {
                           });
                           await _saveDailyChallengeState();
                           if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                "🎉 Défi du jour accompli ! Bravo !",
+                                "ðŸŽ‰ DÃ©fi du jour accompli ! Bravo !",
                               ),
                               backgroundColor: Colors.green,
                               behavior: SnackBarBehavior.floating,
@@ -4420,7 +4467,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 label: Text(
                   _isDailyChallengeCompleted
-                      ? "Défi Accompli !"
+                      ? "DÃ©fi Accompli !"
                       : "Je l'ai fait !",
                 ),
                 style: ElevatedButton.styleFrom(
@@ -4527,7 +4574,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       _proposeNewGoalWithAI(context);
                     },
                     icon: const Icon(Icons.auto_awesome),
-                    label: const Text('Générer un nouvel objectif via l\'IA'),
+                    label: const Text('GÃ©nÃ©rer un nouvel objectif via l\'IA'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade600,
                       foregroundColor: Colors.white,
@@ -4548,7 +4595,7 @@ class _DashboardTabState extends State<DashboardTab> {
           (ctx) => AlertDialog(
             title: const Text('Nouvel Objectif IA'),
             content: const Text(
-              'Félicitations pour avoir atteint votre objectif ! L\'application peut faire appel à l\'IA pour vous suggérer un nouveau défi adapté à votre métabolisme actuel.\n\nVoulez-vous aller dans l\'onglet "Mes Objectifs" pour cela ?',
+              'FÃ©licitations pour avoir atteint votre objectif ! L\'application peut faire appel Ã  l\'IA pour vous suggÃ©rer un nouveau dÃ©fi adaptÃ© Ã  votre mÃ©tabolisme actuel.\n\nVoulez-vous aller dans l\'onglet "Mes Objectifs" pour cela ?',
             ),
             actions: [
               TextButton(
@@ -4562,10 +4609,10 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 onPressed: () {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "Déduire l\'objectif avec l\'IA"',
+                        'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "DÃ©duire l\'objectif avec l\'IA"',
                       ),
                     ),
                   );
@@ -4590,7 +4637,11 @@ class _DashboardTabState extends State<DashboardTab> {
               padding: const EdgeInsets.fromLTRB(8.0, 6.0, 8.0, 0),
               child: Row(
                 children: [
-                  Icon(Icons.history, size: 18, color: Theme.of(context).primaryColor),
+                  Icon(
+                    Icons.history,
+                    size: 18,
+                    color: Theme.of(context).primaryColor,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Historique journalier',
@@ -4604,7 +4655,7 @@ class _DashboardTabState extends State<DashboardTab> {
             Padding(
               padding: const EdgeInsets.fromLTRB(8.0, 4.0, 8.0, 4.0),
               child: Text(
-                'Touchez un jour pour afficher ses données nutritionnelles.',
+                'Touchez un jour pour afficher ses donnÃ©es nutritionnelles.',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
@@ -4619,6 +4670,12 @@ class _DashboardTabState extends State<DashboardTab> {
                   _selectedDay = selectedDay;
                   _focusedDay = focusedDay;
                 });
+              },
+              onPageChanged: (focusedDay) {
+                setState(() {
+                  _focusedDay = focusedDay;
+                });
+                widget.onMonthChanged(DateTime(focusedDay.year, focusedDay.month, 1));
               },
               calendarStyle: CalendarStyle(
                 todayDecoration: BoxDecoration(
@@ -4692,19 +4749,19 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Résumé de la Journée',
+              'RÃ©sumÃ© de la JournÃ©e',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
             _RecapItem(
               icon: Icons.fastfood,
-              label: 'Calories consommées',
+              label: 'Calories consommÃ©es',
               value: '$caloriesConsumed kcal',
               color: Theme.of(context).colorScheme.primary,
             ),
             _RecapItem(
               icon: Icons.local_fire_department,
-              label: 'Calories brûlées',
+              label: 'Calories brÃ»lÃ©es',
               value: '$caloriesBurned kcal',
               color: Colors.orange.shade700,
             ),
@@ -4736,7 +4793,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // NOUVEAU: Widget pour la carte de dépense énergétique hebdomadaire
+  // NOUVEAU: Widget pour la carte de dÃ©pense Ã©nergÃ©tique hebdomadaire
   Widget _buildWeeklyExpenditureCard(
     BuildContext context,
     Map<String, double> weeklyData,
@@ -4753,7 +4810,7 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Dépense Énergétique Hebdomadaire",
+              "DÃ©pense Ã‰nergÃ©tique Hebdomadaire",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
@@ -4794,34 +4851,35 @@ class _DashboardTabState extends State<DashboardTab> {
   Future<double?> _showAddWaterDialog(BuildContext context) async {
     return showDialog<double>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Ajouter de l\'eau', textAlign: TextAlign.center),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Ajouter de l\'eau', textAlign: TextAlign.center),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.local_drink, color: Colors.blue),
-                  label: const Text('+ 250 ml'),
-                  onPressed: () => Navigator.pop(ctx, 0.25),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.local_drink, color: Colors.blue),
+                      label: const Text('+ 250 ml'),
+                      onPressed: () => Navigator.pop(ctx, 0.25),
+                    ),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.water_drop, color: Colors.blue),
+                      label: const Text('+ 500 ml'),
+                      onPressed: () => Navigator.pop(ctx, 0.5),
+                    ),
+                  ],
                 ),
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.water_drop, color: Colors.blue),
-                  label: const Text('+ 500 ml'),
-                  onPressed: () => Navigator.pop(ctx, 0.5),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, 1.0),
+                  child: const Text('+ 1 Litre (Gourde)'),
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, 1.0),
-              child: const Text('+ 1 Litre (Gourde)'),
-            )
-          ],
-        ),
-      ),
+          ),
     );
   }
 
@@ -4839,7 +4897,7 @@ class _DashboardTabState extends State<DashboardTab> {
         child: Column(
           children: [
             Text(
-              'Calories Journalières',
+              'Calories JournaliÃ¨res',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 20),
@@ -4907,7 +4965,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ),
             const SizedBox(height: 20),
             _MacroProgressIndicator(
-              label: 'Protéines',
+              label: 'ProtÃ©ines',
               currentValue: p,
               goalValue: pGoal,
               color: Colors.blue.shade600,
@@ -4932,7 +4990,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // MODIFIÉ: Carte d'objectif de poids pour inclure la projection
+  // MODIFIÃ‰: Carte d'objectif de poids pour inclure la projection
   Widget _buildWeightGoalCard(BuildContext context) {
     final sortedWeights = List<WeightEntry>.from(widget.allWeightEntries)
       ..sort((a, b) => a.date.compareTo(b.date));
@@ -5061,7 +5119,7 @@ class _DashboardTabState extends State<DashboardTab> {
     switch (ecoScoreGrade) {
       case 'A':
         impactMessage =
-            "Excellent ! Votre consommation a un très faible impact environnemental.";
+            "Excellent ! Votre consommation a un trÃ¨s faible impact environnemental.";
         impactColor = Colors.green.shade600;
         break;
       case 'B':
@@ -5071,21 +5129,21 @@ class _DashboardTabState extends State<DashboardTab> {
         break;
       case 'C':
         impactMessage =
-            "Moyen. Des améliorations sont possibles pour réduire votre empreinte.";
+            "Moyen. Des amÃ©liorations sont possibles pour rÃ©duire votre empreinte.";
         impactColor = Colors.orange.shade600;
         break;
       case 'D':
         impactMessage =
-            "Élevé. Il serait bénéfique de revoir vos choix pour l'environnement.";
+            "Ã‰levÃ©. Il serait bÃ©nÃ©fique de revoir vos choix pour l'environnement.";
         impactColor = Colors.deepOrange.shade600;
         break;
       case 'E':
         impactMessage =
-            "Très élevé. Un effort important est nécessaire pour réduire votre impact.";
+            "TrÃ¨s Ã©levÃ©. Un effort important est nÃ©cessaire pour rÃ©duire votre impact.";
         impactColor = Colors.red.shade600;
         break;
       default:
-        impactMessage = "Impossible d'évaluer l'impact pour ce jour.";
+        impactMessage = "Impossible d'Ã©valuer l'impact pour ce jour.";
         impactColor = Colors.grey.shade600;
         break;
     }
@@ -5120,8 +5178,8 @@ class _DashboardTabState extends State<DashboardTab> {
                   color: impactColor,
                 ),
                 _ImpactStat(
-                  score: '${co2.toStringAsFixed(1)}',
-                  label: 'kg CO₂eq / jour',
+                  score: co2.toStringAsFixed(1),
+                  label: 'kg COâ‚‚eq / jour',
                   color: impactColor,
                 ),
               ],
@@ -5145,11 +5203,11 @@ class _DashboardTabState extends State<DashboardTab> {
         children: [
           _RecapItem(
             icon: Icons.timer,
-            label: 'Jeûne en cours',
+            label: 'JeÃ»ne en cours',
             value: 'Fin dans ${_formatDuration(remainingTime)}',
             color: Colors.lightGreen.shade700,
             subtext:
-                'Débuté le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
+                'DÃ©butÃ© le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
           ),
           const Divider(height: 16),
         ],
@@ -5196,7 +5254,7 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Résumé des Jeûnes',
+              'RÃ©sumÃ© des JeÃ»nes',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
@@ -5240,7 +5298,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ] else if (activeFastingSession == null) ...[
               const Center(
                 child: Text(
-                  "Aucun jeûne récent.",
+                  "Aucun jeÃ»ne rÃ©cent.",
                   style: TextStyle(color: Colors.grey),
                 ),
               ),
@@ -5280,7 +5338,7 @@ class _DashboardTabState extends State<DashboardTab> {
           padding: EdgeInsets.all(20.0),
           child: Center(
             child: Text(
-              "Ajoutez des repas, activités et autres données pour obtenir votre score de vie journalier.",
+              "Ajoutez des repas, activitÃ©s et autres donnÃ©es pour obtenir votre score de vie journalier.",
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
@@ -5340,7 +5398,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           color: Colors.amber,
                         ),
                         onPressed: _generateGlobalAIAnalysis,
-                        tooltip: 'Demander un bilan à l\'IA',
+                        tooltip: 'Demander un bilan Ã  l\'IA',
                       ),
               ],
             ),
@@ -5471,13 +5529,13 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
   List<dynamic> _generatedWorkout = [];
   bool _isWorkoutLoading = false;
 
-  // Calcule le début de la semaine (Lundi)
+  // Calcule le dÃ©but de la semaine (Lundi)
   DateTime get _startOfWeek {
     final now = DateTime.now();
     return now.subtract(Duration(days: now.weekday - 1));
   }
 
-  // Calcule les calories brûlées depuis le début de la semaine
+  // Calcule les calories brÃ»lÃ©es depuis le dÃ©but de la semaine
   double get _caloriesBurnedThisWeek {
     final start = _startOfWeek;
     return widget.activities
@@ -5485,12 +5543,12 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         .fold(0.0, (sum, item) => sum + item.caloriesBurned);
   }
 
-  // Fonction pour estimer les calories d'une activité via l'IA
+  // Fonction pour estimer les calories d'une activitÃ© via l'IA
   Future<void> _analyzeActivityWithIA() async {
     if (_promptController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez décrire votre activité.'),
+          content: Text('Veuillez dÃ©crire votre activitÃ©.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -5501,7 +5559,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
               "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
@@ -5529,24 +5587,24 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     );
 
     final prompt = '''
-    En tant qu'expert coach sportif et nutritionniste, analyse la description de l'activité physique suivante pour un utilisateur.
-    Description de l'activité: "${_promptController.text}".
+    En tant qu'expert coach sportif et nutritionniste, analyse la description de l'activitÃ© physique suivante pour un utilisateur.
+    Description de l'activitÃ©: "${_promptController.text}".
     
-    Voici les informations de l'utilisateur pour une estimation précise :
+    Voici les informations de l'utilisateur pour une estimation prÃ©cise :
     - Poids: ${widget.userProfile?.weight ?? 70} kg
-    - Âge: ${widget.userProfile?.age ?? 30} ans
+    - Ã‚ge: ${widget.userProfile?.age ?? 30} ans
     - Sexe: ${widget.userProfile?.gender ?? 'male'}
-    - Niveau d'activité général: ${widget.userProfile?.activityLevel ?? 'moderate'}
+    - Niveau d'activitÃ© gÃ©nÃ©ral: ${widget.userProfile?.activityLevel ?? 'moderate'}
 
-    Fournis une réponse au format JSON strict. Le JSON doit contenir :
-    - "activity_name": Un nom court et descriptif pour l'activité (ex: "Course à pied intense").
-    - "estimated_calories": Le nombre de calories brûlées estimé (nombre entier).
-    - "duration_minutes": La durée de l'activité en minutes (nombre entier).
-    - "activity_type": Une catégorie parmi "Course", "Marche", "Musculation", "Vélo", "Yoga", "Natation", "Autre".
+    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
+    - "activity_name": Un nom court et descriptif pour l'activitÃ© (ex: "Course Ã  pied intense").
+    - "estimated_calories": Le nombre de calories brÃ»lÃ©es estimÃ© (nombre entier).
+    - "duration_minutes": La durÃ©e de l'activitÃ© en minutes (nombre entier).
+    - "activity_type": Une catÃ©gorie parmi "Course", "Marche", "Musculation", "VÃ©lo", "Yoga", "Natation", "Autre".
     
     Exemple de JSON attendu :
     {
-      "activity_name": "Course à pied à allure modérée",
+      "activity_name": "Course Ã  pied Ã  allure modÃ©rÃ©e",
       "estimated_calories": 450,
       "duration_minutes": 45,
       "activity_type": "Course"
@@ -5559,7 +5617,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         temperature: 0.3,
       );
 
-      Navigator.pop(context); // Ferme la boîte de dialogue de chargement
+      if (mounted) Navigator.pop(context); // Ferme la boÃ®te de dialogue de chargement
 
       if (result != null) {
         await widget.usageTrackerService.incrementDeepSeekApiCall();
@@ -5575,26 +5633,29 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         );
         _promptController.clear();
       } else {
-        throw Exception('Réponse IA vide');
+        throw Exception('RÃ©ponse IA vide');
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Erreur IA: Réseau ou serveur indisponible.'),
+          content: Text('Erreur IA: RÃ©seau ou serveur indisponible.'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  // Fonction pour générer un plan d'entraînement avec l'IA
-  Future<void> _generateWorkoutPlanWithIA({bool isWeekly = false, bool isAtGym = false}) async {
+  // Fonction pour gÃ©nÃ©rer un plan d'entraÃ®nement avec l'IA
+  Future<void> _generateWorkoutPlanWithIA({
+    bool isWeekly = false,
+    bool isAtGym = false,
+  }) async {
     if (!widget.isPremiumUser) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Cette fonctionnalité est réservée aux membres Premium.",
+            "Cette fonctionnalitÃ© est rÃ©servÃ©e aux membres Premium.",
           ),
           backgroundColor: Colors.amber,
         ),
@@ -5602,12 +5663,12 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       return;
     }
 
-    // AJOUTÉ: Vérification pour s'assurer que le profil est bien chargé
+    // AJOUTÃ‰: VÃ©rification pour s'assurer que le profil est bien chargÃ©
     if (widget.userProfile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Le profil utilisateur n'a pas pu être chargé, impossible de générer un plan.",
+            "Le profil utilisateur n'a pas pu Ãªtre chargÃ©, impossible de gÃ©nÃ©rer un plan.",
           ),
           backgroundColor: Colors.red,
         ),
@@ -5618,15 +5679,15 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     setState(() => _isWorkoutLoading = true);
 
     final prompt = '''
-    En tant qu'entraîneur personnel d'élite, crée un plan d'entraînement pour un utilisateur avec le profil suivant :
+    En tant qu'entraÃ®neur personnel d'Ã©lite, crÃ©e un plan d'entraÃ®nement pour un utilisateur avec le profil suivant :
     - Objectif: ${widget.currentGoals.weightGoalType == 'gain' ? 'Prise de muscle' : (widget.currentGoals.weightGoalType == 'lose' ? 'Perte de poids' : 'Maintien')}
-    - Sports aimés: ${widget.userProfile!.likedSports}
-    - Sports détestés: ${widget.userProfile!.dislikedSports}
+    - Sports aimÃ©s: ${widget.userProfile!.likedSports}
+    - Sports dÃ©testÃ©s: ${widget.userProfile!.dislikedSports}
 
-    ${isAtGym ? "ATTENTION : L'utilisateur est ACTUELLEMENT À LA SALLE DE SPORT. Utilise les machines disponibles (poulies, haltères, machines guidées) pour un maximum d'efficacité." : "Équipement disponible: ${widget.userProfile!.gymMode ? 'Salle complète' : widget.userProfile!.availableEquipment.join(', ')}"}
+    ${isAtGym ? "ATTENTION : L'utilisateur est ACTUELLEMENT Ã€ LA SALLE DE SPORT. Utilise les machines disponibles (poulies, haltÃ¨res, machines guidÃ©es) pour un maximum d'efficacitÃ©." : "Ã‰quipement disponible: ${widget.userProfile!.gymMode ? 'Salle complÃ¨te' : widget.userProfile!.availableEquipment.join(', ')}"}
 
-    Tâche : générer un plan détaillé adapté UNIQUEMENT au matériel disponible pour ${isWeekly ? 'la semaine complète (7 jours)' : 'la séance du jour'}.
-    ... (Reste du JSON inchangé)
+    TÃ¢che : gÃ©nÃ©rer un plan dÃ©taillÃ© adaptÃ© UNIQUEMENT au matÃ©riel disponible pour ${isWeekly ? 'la semaine complÃ¨te (7 jours)' : 'la sÃ©ance du jour'}.
+    ... (Reste du JSON inchangÃ©)
     ''';
 
     try {
@@ -5639,17 +5700,19 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         final List<dynamic> plan = result['workout_plan'] ?? [];
         setState(() => _generatedWorkout = plan);
       } else {
-        throw Exception('Réponse IA vide');
+        throw Exception('RÃ©ponse IA vide');
       }
     } on SocketException {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Pas de connexion internet. Enregistrez manuellement pour l\'instant !'),
+          content: Text(
+            'Pas de connexion internet. Enregistrez manuellement pour l\'instant !',
+          ),
           backgroundColor: Colors.red,
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red),
       );
     } finally {
@@ -5657,7 +5720,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     }
   }
 
-  // Fonction pour ajouter une activité manuellement
+  // Fonction pour ajouter une activitÃ© manuellement
   Future<void> _addActivityManually() async {
     final descController = TextEditingController();
     final calController = TextEditingController();
@@ -5670,120 +5733,145 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       context: context,
       builder:
           (ctx) => StatefulBuilder(
-            builder: (ctx, setStateBuilder) => AlertDialog(
-              title: const Text('Ajouter une activité manuellement'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: descController,
-                      decoration: const InputDecoration(labelText: 'Description'),
+            builder:
+                (ctx, setStateBuilder) => AlertDialog(
+                  title: const Text('Ajouter une activitÃ© manuellement'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextField(
+                          controller: descController,
+                          decoration: const InputDecoration(
+                            labelText: 'Description',
+                          ),
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: activityType,
+                          decoration: const InputDecoration(
+                            labelText: 'Type d\'activitÃ©',
+                          ),
+                          items:
+                              [
+                                    'Course',
+                                    'Marche',
+                                    'Musculation',
+                                    'VÃ©lo',
+                                    'Yoga',
+                                    'Natation',
+                                    'Autre',
+                                  ]
+                                  .map(
+                                    (label) => DropdownMenuItem(
+                                      value: label,
+                                      child: Text(label),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged:
+                              (value) => setStateBuilder(
+                                () => activityType = value ?? 'Autre',
+                              ),
+                        ),
+                        if (activityType == 'Autre')
+                          TextField(
+                            controller: sportNameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Nom du sport (optionnel)',
+                            ),
+                          ),
+                        TextField(
+                          controller: durController,
+                          decoration: const InputDecoration(
+                            labelText: 'DurÃ©e (minutes)',
+                          ),
+                          keyboardType: TextInputType.number,
+                        ),
+                        DropdownButtonFormField<String>(
+                          initialValue: intensity,
+                          items:
+                              ['Faible', 'Moyenne', 'Ã‰levÃ©e']
+                                  .map(
+                                    (e) => DropdownMenuItem(
+                                      value: e,
+                                      child: Text(e),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: (val) {
+                            if (val != null) {
+                              setStateBuilder(() => intensity = val);
+                            }
+                          },
+                          decoration: const InputDecoration(
+                            labelText: 'IntensitÃ©',
+                          ),
+                        ),
+                        TextField(
+                          controller: calController,
+                          decoration: const InputDecoration(
+                            labelText: 'Calories brÃ»lÃ©es (optionnel)',
+                            hintText: 'CalculÃ©es par IA sinon',
+                          ),
+                          keyboardType: TextInputType.number,
+                        ),
+                      ],
                     ),
-                    DropdownButtonFormField<String>(
-                      value: activityType,
-                      decoration: const InputDecoration(
-                        labelText: 'Type d\'activité',
-                      ),
-                      items:
-                          [
-                                'Course',
-                                'Marche',
-                                'Musculation',
-                                'Vélo',
-                                'Yoga',
-                                'Natation',
-                                'Autre',
-                              ]
-                              .map(
-                                (label) => DropdownMenuItem(
-                                  value: label,
-                                  child: Text(label),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (value) => setStateBuilder(() => activityType = value ?? 'Autre'),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Annuler'),
                     ),
-                    if (activityType == 'Autre')
-                      TextField(
-                        controller: sportNameController,
-                        decoration: const InputDecoration(labelText: 'Nom du sport (optionnel)'),
-                      ),
-                    TextField(
-                      controller: durController,
-                      decoration: const InputDecoration(
-                        labelText: 'Durée (minutes)',
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-                    DropdownButtonFormField<String>(
-                      value: intensity,
-                      items: ['Faible', 'Moyenne', 'Élevée'].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                      onChanged: (val) {
-                        if (val != null) setStateBuilder(() => intensity = val);
+                    ElevatedButton(
+                      onPressed: () {
+                        final duration = int.tryParse(durController.text);
+                        double? calories = double.tryParse(calController.text);
+
+                        if (descController.text.isNotEmpty &&
+                            duration != null) {
+                          if (calories == null) {
+                            double met = 5.0; // Moyenne
+                            if (intensity == 'Faible') {
+                              met = 3.5;
+                            } else if (intensity == 'Ã‰levÃ©e')
+                              met = 6.0;
+                            final userWeight =
+                                widget.userProfile?.weight ?? 70.0;
+                            calories = met * userWeight * (duration / 60.0);
+                          }
+
+                          String finalActivityType = activityType;
+                          if (activityType == 'Autre' &&
+                              sportNameController.text.isNotEmpty) {
+                            finalActivityType = sportNameController.text;
+                          }
+
+                          widget.addActivity(
+                            ActivityEntry(
+                              description: descController.text,
+                              caloriesBurned: calories,
+                              duration: Duration(minutes: duration),
+                              activityType: finalActivityType,
+                              timestamp: _selectedDate,
+                            ),
+                          );
+                          Navigator.pop(ctx);
+                        } else {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Veuillez remplir les champs Description et DurÃ©e',
+                              ),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
                       },
-                      decoration: const InputDecoration(labelText: 'Intensité'),
-                    ),
-                    TextField(
-                      controller: calController,
-                      decoration: const InputDecoration(
-                        labelText: 'Calories brûlées (optionnel)',
-                        hintText: 'Calculées par IA sinon'
-                      ),
-                      keyboardType: TextInputType.number,
+                      child: const Text('Ajouter'),
                     ),
                   ],
                 ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Annuler'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final duration = int.tryParse(durController.text);
-                    double? calories = double.tryParse(calController.text);
-                    
-                    if (descController.text.isNotEmpty && duration != null) {
-                      if (calories == null) {
-                        double met = 5.0; // Moyenne
-                        if (intensity == 'Faible') met = 3.5;
-                        else if (intensity == 'Élevée') met = 6.0;
-                        final userWeight = widget.userProfile?.weight ?? 70.0;
-                        calories = met * userWeight * (duration / 60.0);
-                      }
-                      
-                      String finalActivityType = activityType;
-                      if (activityType == 'Autre' && sportNameController.text.isNotEmpty) {
-                        finalActivityType = sportNameController.text;
-                      }
-
-                      widget.addActivity(
-                        ActivityEntry(
-                          description: descController.text,
-                          caloriesBurned: calories,
-                          duration: Duration(minutes: duration),
-                          activityType: finalActivityType,
-                          timestamp: _selectedDate,
-                        ),
-                      );
-                      Navigator.pop(ctx);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Veuillez remplir les champs Description et Durée',
-                          ),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  },
-                  child: const Text('Ajouter'),
-                ),
-              ],
-            ),
           ),
     );
   }
@@ -5794,7 +5882,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Supprimer l\'activité ?'),
+            title: const Text('Supprimer l\'activitÃ© ?'),
             content: Text(
               'Voulez-vous vraiment supprimer "${activity.description}" ?',
             ),
@@ -5816,7 +5904,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     );
   }
 
-  // Helper pour l'icône
+  // Helper pour l'icÃ´ne
   IconData _getActivityIcon(String activityType) {
     switch (activityType.toLowerCase()) {
       case 'course':
@@ -5825,7 +5913,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         return Icons.directions_walk;
       case 'musculation':
         return Icons.fitness_center;
-      case 'vélo':
+      case 'vÃ©lo':
         return Icons.directions_bike;
       case 'yoga':
         return Icons.self_improvement;
@@ -5850,352 +5938,435 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Suivi des Activités Physiques'),
+        title: const Text('Suivi des ActivitÃ©s Physiques'),
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
             children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Card(
-              elevation: 4,
-              child: Padding(
+              Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      "Progression de votre objectif hebdomadaire",
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
+                child: Card(
+                  elevation: 4,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(
-                          Icons.local_fire_department,
-                          color: Colors.orange,
-                        ),
-                        const SizedBox(width: 8),
                         Text(
-                          "${_caloriesBurnedThisWeek.toStringAsFixed(0)} / ${weeklyGoal.toStringAsFixed(0)} kcal",
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.bold),
+                          "Progression de votre objectif hebdomadaire",
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: weeklyProgress,
-                      minHeight: 10,
-                      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        Theme.of(context).colorScheme.secondary,
-                      ),
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: () async {
-                      final DateTime? picked = await showDatePicker(
-                        context: context,
-                        initialDate: _selectedDate,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime(2200),
-                      );
-                      if (picked != null && picked != _selectedDate) {
-                        setState(() {
-                          _selectedDate = picked;
-                        });
-                      }
-                    },
-                    icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                      DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDate),
-                    ),
-                    style: ElevatedButton.styleFrom(elevation: 2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (widget.isPremiumUser)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
-              ),
-              child: Card(
-                color: Theme.of(context).colorScheme.primaryContainer.withOpacity(0.18),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      Row(
-                        children: [
-                          Icon(Icons.auto_awesome, color: Colors.blue.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              "Votre Plan d'Entraînement IA (VIP)",
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                color: Colors.blueGrey.shade900,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (_isWorkoutLoading) const CircularProgressIndicator(),
-                      if (!_isWorkoutLoading && _generatedWorkout.isEmpty)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                        const SizedBox(height: 12),
+                        Row(
                           children: [
-                            ElevatedButton.icon(
-                              onPressed: () => _generateWorkoutPlanWithIA(isWeekly: false),
-                              icon: const Icon(Icons.today),
-                              label: const Text("Générer un plan pour aujourd'hui"),
+                            const Icon(
+                              Icons.local_fire_department,
+                              color: Colors.orange,
                             ),
-                            const SizedBox(height: 8),
-                            ElevatedButton.icon(
-                              onPressed: () => _generateWorkoutPlanWithIA(isWeekly: true),
-                              icon: const Icon(Icons.date_range),
-                              label: const Text("Générer un plan pour la semaine"),
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton.icon(
-                              onPressed: () => _generateWorkoutPlanWithIA(isWeekly: false, isAtGym: true),
-                              icon: const Icon(Icons.fitness_center),
-                              label: const Text("Générer (Je suis à la salle !)"),
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple.shade600),
+                            const SizedBox(width: 8),
+                            Text(
+                              "${_caloriesBurnedThisWeek.toStringAsFixed(0)} / ${weeklyGoal.toStringAsFixed(0)} kcal",
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
-                      if (_generatedWorkout.isNotEmpty)
-                        ..._generatedWorkout.map((exerciseData) {
-                          final exerciseId = exerciseData['exerciseId'];
-                          final title = exerciseData['title'] ?? 'Exercice inconnu';
-                          final subtitle = exerciseData['subtitle'] ?? '';
-                          final activityType = exerciseData['activityType'] ?? 'Musculation';
-                          final calories = (exerciseData['estimated_calories'] ?? 0).toDouble();
-                          final duration = exerciseData['duration_minutes'] ?? 0;
-                          
-                          ExerciseItem? exercise;
-                          if (exerciseId != null) {
-                            exercise = SL.exerciseLibrary.getExerciseById(exerciseId);
-                          }
-
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              leading: exercise != null && exercise.getImageUrl(0).isNotEmpty
-                                  ? SizedBox(
-                                      width: 50,
-                                      height: 50,
-                                      child: AnimatedExerciseImage(
-                                        imageUrl0: exercise.getImageUrl(0),
-                                        imageUrl1: exercise.getImageUrl(1),
-                                      ),
-                                    )
-                                  : Icon(_getActivityIcon(activityType as String), color: Colors.blue),
-                              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text('$subtitle\n${duration}min • ${calories.toInt()} kcal'),
-                              trailing: IconButton(
-                                icon: const Icon(Icons.check_circle_outline, color: Colors.green, size: 30),
-                                tooltip: "Valider et Ajouter",
-                                onPressed: () {
-                                  widget.addActivity(
-                                    ActivityEntry(
-                                      description: title,
-                                      caloriesBurned: calories,
-                                      duration: Duration(minutes: duration),
-                                      activityType: activityType,
-                                      timestamp: _selectedDate,
-                                      isAiEstimated: true,
-                                    ),
-                                  );
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Activité "$title" ajoutée !')),
-                                  );
-                                },
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                      if (_generatedWorkout.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 12.0),
-                          child: TextButton.icon(
-                            onPressed:
-                                () => setState(() => _generatedWorkout = []),
-                            icon: const Icon(Icons.clear),
-                            label: const Text("Effacer le plan"),
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(
+                          value: weeklyProgress,
+                          minHeight: 10,
+                          backgroundColor:
+                              Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Theme.of(context).colorScheme.secondary,
                           ),
+                          borderRadius: BorderRadius.circular(5),
                         ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Card(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: ListTile(
-                leading: Icon(Icons.library_books, color: Colors.green.shade800, size: 40),
-                title: const Text("Bibliothèque d'exercices", style: TextStyle(fontWeight: FontWeight.bold)),
-                subtitle: const Text("Explorez plus de 800 exercices avec guides visuels"),
-                trailing: const Icon(Icons.arrow_forward_ios),
-                onTap: () {
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (context) => ExerciseLibraryScreen(
-                      onAddActivity: (desc, cal, dur, type) {
-                        widget.addActivity(
-                          ActivityEntry(
-                            description: desc,
-                            caloriesBurned: cal,
-                            duration: Duration(minutes: dur),
-                            activityType: type,
-                            timestamp: _selectedDate,
-                          )
-                        );
-                      }
-                    )
-                  ));
-                },
-              )
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                child: Row(
                   children: [
-                    Text(
-                      "Décrire votre activité pour l'IA",
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _promptController,
-                      decoration: InputDecoration(
-                        labelText: 'Ex: "45min de course intense en côte"',
-                        hintText: 'Décrivez votre séance de sport',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        suffixIcon: IconButton(
-                          icon: const Icon(Icons.clear),
-                          onPressed: () => _promptController.clear(),
-                        ),
-                      ),
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
+                    Expanded(
                       child: ElevatedButton.icon(
-                        onPressed: _analyzeActivityWithIA,
-                        icon: const Icon(Icons.lightbulb_outline),
+                        onPressed: () async {
+                          final DateTime? picked = await showDatePicker(
+                            context: context,
+                            initialDate: _selectedDate,
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2200),
+                          );
+                          if (picked != null && picked != _selectedDate) {
+                            setState(() {
+                              _selectedDate = picked;
+                            });
+                          }
+                        },
+                        icon: const Icon(Icons.calendar_today),
                         label: Text(
-                          widget.isPremiumUser
-                              ? 'Estimer calories brûlées (IA)'
-                              : 'Estimer calories (IA - 5/jour)',
+                          DateFormat(
+                            'd MMMM yyyy',
+                            'fr_FR',
+                          ).format(_selectedDate),
                         ),
+                        style: ElevatedButton.styleFrom(elevation: 2),
                       ),
                     ),
                   ],
                 ),
               ),
-            ),
-          ),
-          dailyActivities.isEmpty
-              ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(20.0),
-                    child: Text(
-                      'Aucune activité enregistrée pour cette date. Ajoutez-en une !',
-                      style: TextStyle(fontSize: 16, color: Colors.grey),
-                      textAlign: TextAlign.center,
-                    ),
+              if (widget.isPremiumUser)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
                   ),
-                )
-              : ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
-                  itemCount: dailyActivities.length,
-                  itemBuilder: (context, index) {
-                    final activity = dailyActivities[index];
-                        return Card(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 6,
-                          ),
-                          child: ListTile(
-                            leading: Icon(
-                              _getActivityIcon(activity.activityType),
-                              color: Theme.of(context).primaryColor,
-                            ),
-                            title: Text(
-                              activity.description,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                  child: Card(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer.withOpacity(0.18),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.auto_awesome,
+                                color: Colors.blue.shade700,
                               ),
-                            ),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${activity.duration.inMinutes} min • ${activity.activityType}',
-                                ),
-                                if (activity.isAiEstimated)
-                                  const Text(
-                                    'Estimé par IA',
-                                    style: TextStyle(
-                                      fontStyle: FontStyle.italic,
-                                      color: Colors.grey,
-                                      fontSize: 12,
-                                    ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  "Votre Plan d'EntraÃ®nement IA (VIP)",
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.titleLarge?.copyWith(
+                                    color: Colors.blueGrey.shade900,
                                   ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (_isWorkoutLoading)
+                            const CircularProgressIndicator(),
+                          if (!_isWorkoutLoading && _generatedWorkout.isEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed:
+                                      () => _generateWorkoutPlanWithIA(
+                                        isWeekly: false,
+                                      ),
+                                  icon: const Icon(Icons.today),
+                                  label: const Text(
+                                    "GÃ©nÃ©rer un plan pour aujourd'hui",
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ElevatedButton.icon(
+                                  onPressed:
+                                      () => _generateWorkoutPlanWithIA(
+                                        isWeekly: true,
+                                      ),
+                                  icon: const Icon(Icons.date_range),
+                                  label: const Text(
+                                    "GÃ©nÃ©rer un plan pour la semaine",
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ElevatedButton.icon(
+                                  onPressed:
+                                      () => _generateWorkoutPlanWithIA(
+                                        isWeekly: false,
+                                        isAtGym: true,
+                                      ),
+                                  icon: const Icon(Icons.fitness_center),
+                                  label: const Text(
+                                    "GÃ©nÃ©rer (Je suis Ã  la salle !)",
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.purple.shade600,
+                                  ),
+                                ),
                               ],
                             ),
-                            trailing: Text(
-                              '${activity.caloriesBurned.toStringAsFixed(0)} kcal',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                color: Colors.orange,
-                                fontWeight: FontWeight.bold,
+                          if (_generatedWorkout.isNotEmpty)
+                            ..._generatedWorkout.map((exerciseData) {
+                              final exerciseId = exerciseData['exerciseId'];
+                              final title =
+                                  exerciseData['title'] ?? 'Exercice inconnu';
+                              final subtitle = exerciseData['subtitle'] ?? '';
+                              final activityType =
+                                  exerciseData['activityType'] ?? 'Musculation';
+                              final calories =
+                                  (exerciseData['estimated_calories'] ?? 0)
+                                      .toDouble();
+                              final duration =
+                                  exerciseData['duration_minutes'] ?? 0;
+
+                              ExerciseItem? exercise;
+                              if (exerciseId != null) {
+                                exercise = SL.exerciseLibrary.getExerciseById(
+                                  exerciseId,
+                                );
+                              }
+
+                              return Card(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child: ListTile(
+                                  leading:
+                                      exercise != null &&
+                                              exercise.getImageUrl(0).isNotEmpty
+                                          ? SizedBox(
+                                            width: 50,
+                                            height: 50,
+                                            child: AnimatedExerciseImage(
+                                              imageUrl0: exercise.getImageUrl(
+                                                0,
+                                              ),
+                                              imageUrl1: exercise.getImageUrl(
+                                                1,
+                                              ),
+                                            ),
+                                          )
+                                          : Icon(
+                                            _getActivityIcon(
+                                              activityType as String,
+                                            ),
+                                            color: Colors.blue,
+                                          ),
+                                  title: Text(
+                                    title,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  subtitle: Text(
+                                    '$subtitle\n${duration}min â€¢ ${calories.toInt()} kcal',
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.check_circle_outline,
+                                      color: Colors.green,
+                                      size: 30,
+                                    ),
+                                    tooltip: "Valider et Ajouter",
+                                    onPressed: () {
+                                      widget.addActivity(
+                                        ActivityEntry(
+                                          description: title,
+                                          caloriesBurned: calories,
+                                          duration: Duration(minutes: duration),
+                                          activityType: activityType,
+                                          timestamp: _selectedDate,
+                                          isAiEstimated: true,
+                                        ),
+                                      );
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            'ActivitÃ© "$title" ajoutÃ©e !',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              );
+                            }),
+                          if (_generatedWorkout.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 12.0),
+                              child: TextButton.icon(
+                                onPressed:
+                                    () =>
+                                        setState(() => _generatedWorkout = []),
+                                icon: const Icon(Icons.clear),
+                                label: const Text("Effacer le plan"),
                               ),
                             ),
-                            onLongPress:
-                                () => _showDeleteActivityDialog(activity),
-                          ),
-                        );
-                      },
+                        ],
+                      ),
                     ),
-          ],
+                  ),
+                ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: Card(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.library_books,
+                      color: Colors.green.shade800,
+                      size: 40,
+                    ),
+                    title: const Text(
+                      "BibliothÃ¨que d'exercices",
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: const Text(
+                      "Explorez plus de 800 exercices avec guides visuels",
+                    ),
+                    trailing: const Icon(Icons.arrow_forward_ios),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder:
+                              (context) => ExerciseLibraryScreen(
+                                userWeight: widget.userProfile?.weight ?? 70.0,
+                                onAddActivity: (desc, cal, dur, type) {
+                                  widget.addActivity(
+                                    ActivityEntry(
+                                      description: desc,
+                                      caloriesBurned: cal,
+                                      duration: Duration(minutes: dur),
+                                      activityType: type,
+                                      timestamp: _selectedDate,
+                                    ),
+                                  );
+                                },
+                              ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16.0,
+                  vertical: 8.0,
+                ),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "DÃ©crire votre activitÃ© pour l'IA",
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _promptController,
+                          decoration: InputDecoration(
+                            labelText: 'Ex: "45min de course intense en cÃ´te"',
+                            hintText: 'DÃ©crivez votre sÃ©ance de sport',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () => _promptController.clear(),
+                            ),
+                          ),
+                          maxLines: 2,
+                        ),
+                        const SizedBox(height: 16),
+                        Center(
+                          child: ElevatedButton.icon(
+                            onPressed: _analyzeActivityWithIA,
+                            icon: const Icon(Icons.lightbulb_outline),
+                            label: Text(
+                              widget.isPremiumUser
+                                  ? 'Estimer calories brÃ»lÃ©es (IA)'
+                                  : 'Estimer calories (IA - 5/jour)',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              dailyActivities.isEmpty
+                  ? const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(20.0),
+                      child: Text(
+                        'Aucune activitÃ© enregistrÃ©e pour cette date. Ajoutez-en une !',
+                        style: TextStyle(fontSize: 16, color: Colors.grey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  )
+                  : ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
+                    itemCount: dailyActivities.length,
+                    itemBuilder: (context, index) {
+                      final activity = dailyActivities[index];
+                      return Card(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        child: ListTile(
+                          leading: Icon(
+                            _getActivityIcon(activity.activityType),
+                            color: Theme.of(context).primaryColor,
+                          ),
+                          title: Text(
+                            activity.description,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${activity.duration.inMinutes} min â€¢ ${activity.activityType}',
+                              ),
+                              if (activity.isAiEstimated)
+                                const Text(
+                                  'EstimÃ© par IA',
+                                  style: TextStyle(
+                                    fontStyle: FontStyle.italic,
+                                    color: Colors.grey,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
+                          ),
+                          trailing: Text(
+                            '${activity.caloriesBurned.toStringAsFixed(0)} kcal',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          onLongPress:
+                              () => _showDeleteActivityDialog(activity),
+                        ),
+                      );
+                    },
+                  ),
+            ],
+          ),
         ),
-      ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addActivityManually,
-        label: const Text('Ajouter une activité'),
+        label: const Text('Ajouter une activitÃ©'),
         icon: const Icon(Icons.add),
         heroTag: 'addActivityFab',
       ),
@@ -6244,15 +6415,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
         widget.allWeightEntries.isNotEmpty
             ? widget.allWeightEntries.last.weight
             : (widget.userProfile?.weight ?? 70.0);
-    // Lancer la première projection au chargement de l'onglet
+    // Lancer la premiÃ¨re projection au chargement de l'onglet
     _updateProjections();
   }
 
   @override
   void didUpdateWidget(covariant EvolutionTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Si les données changent (ex: après une suppression), on met à jour les projections.
-    // C'est une méthode robuste pour garder l'UI synchronisée.
+    // Si les donnÃ©es changent (ex: aprÃ¨s une suppression), on met Ã  jour les projections.
+    // C'est une mÃ©thode robuste pour garder l'UI synchronisÃ©e.
     if (widget.allWeightEntries.length != oldWidget.allWeightEntries.length ||
         widget.currentGoals != oldWidget.currentGoals ||
         widget.allFoodEntries.length != oldWidget.allFoodEntries.length) {
@@ -6260,12 +6431,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
     }
   }
 
-  // Fonction centrale pour rafraîchir les données de projection
+  // Fonction centrale pour rafraÃ®chir les donnÃ©es de projection
   void _updateProjections() {
     if (!mounted) return;
 
     final newProjectionData = _getWeightProjections();
-    // CORRECTION: Gestion sûre de la liste de projections
+    // CORRECTION: Gestion sÃ»re de la liste de projections
     final projections =
         (newProjectionData['projections'] as List?)
             ?.map((e) => e as Map<String, dynamic>)
@@ -6288,12 +6459,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
       for (var proj in projections) {
         final daysDiff = (proj['date'] as DateTime).difference(lastDate).inDays;
         final newX =
-            lastX + (daysDiff / 7.0); // 1 unité sur l'axe X = env. 1 semaine
+            lastX + (daysDiff / 7.0); // 1 unitÃ© sur l'axe X = env. 1 semaine
         newSpots.add(FlSpot(newX, proj['weight'] as double));
       }
     }
 
-    // Mettre à jour l'état pour reconstruire le widget avec les nouvelles données
+    // Mettre Ã  jour l'Ã©tat pour reconstruire le widget avec les nouvelles donnÃ©es
     setState(() {
       _projectedSpots = newSpots;
       _projectionData = newProjectionData;
@@ -6302,11 +6473,13 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
   bool _isAiAnalyzing = false;
   String? _aiAnalysisText;
-  List<File> _progressPhotos = [];
+  final List<File> _progressPhotos = [];
 
   Future<void> _takeProgressPhoto() async {
     final picker = ImagePicker();
-    final XFile? pickedFile = await picker.pickImage(source: ImageSource.camera);
+    final XFile? pickedFile = await picker.pickImage(
+      source: ImageSource.camera,
+    );
     if (pickedFile != null && mounted) {
       setState(() {
         _progressPhotos.add(File(pickedFile.path));
@@ -6319,7 +6492,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
             backgroundColor: Colors.red,
@@ -6335,18 +6508,43 @@ class _EvolutionTabState extends State<EvolutionTab> {
       ..sort((a, b) => a.date.compareTo(b.date));
     final String weights = sortedEntries
         .map(
-          (e) => "${e.date.toIso8601String().substring(0,10)}: ${e.weight}kg",
+          (e) => "${e.date.toIso8601String().substring(0, 10)}: ${e.weight}kg",
         )
         .join(", ");
     final String goal = widget.currentGoals.weightGoalType;
 
+    final profileInfo = widget.userProfile != null ? '''
+    Profil Utilisateur:
+    - Sexe: ${widget.userProfile!.gender}
+    - Age: ${widget.userProfile!.age}
+    - Taille: ${widget.userProfile!.height} cm
+    - Poids actuel: ${widget.userProfile!.weight} kg
+    - Niveau d'activite: ${widget.userProfile!.activityLevel}
+    - Condition physique: ${widget.userProfile!.physicalCondition}
+    - Experience du jeune: ${widget.userProfile!.fastingExperience}
+    - Qualite de l'alimentation: ${widget.userProfile!.dietQuality}
+    - Tendance sucree: ${widget.userProfile!.tendsToEatSugary ? 'Oui' : 'Non'}
+    - Tendance salee: ${widget.userProfile!.tendsToEatSalty ? 'Oui' : 'Non'}
+    - Heures de sommeil: ${widget.userProfile!.sleepHours} h/nuit
+    - Niveau de stress: ${widget.userProfile!.stressLevel}
+    - Motivation principale: ${widget.userProfile!.mainMotivation}
+    - Strict au plan: ${widget.userProfile!.planStrictness}/5
+    - Aime cuisiner: ${widget.userProfile!.likesCooking ?? 'Non precise'}
+    - Frequence cuisine: ${widget.userProfile!.cookingFrequency ?? 'Non precise'}
+    - Sports aimes: ${widget.userProfile!.likedSports}
+    - Sports detestes: ${widget.userProfile!.dislikedSports}
+    - Equipement: ${widget.userProfile!.availableEquipment.join(', ')}
+    ''' : 'Profil non disponible.';
+
     final prompt = '''
     Agis comme un coach de santé. Analyse l'évolution du poids de l'utilisateur.
     Objectif: $goal. 
+    $profileInfo
+    
     Historique de poids: $weights
     
-    TÂCHE 1: Fournis UN SEUL paragraphe d'analyse et de recommandations motivantes basées sur la tendance de l'historique.
-    TÂCHE 2: Estime précisément le poids de l'utilisateur pour les 8 prochaines semaines (1 valeur par semaine) s'il suit tes recommandations.
+    TÂCHE 1: Fournis UN SEUL paragraphe d'analyse et de recommandations ultra-personnalisées basées sur le sommeil, le stress, et l'alimentation.
+    TÂCHE 2: Estime précisément le poids de l'utilisateur pour les 8 PROCHAINES SEMAINES (1 valeur par semaine).
     
     Renvoie le résultat au format JSON STRICT comme ceci:
     {
@@ -6354,9 +6552,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
       "projections": [70.5, 70.0, 69.5, 69.0, 68.5, 68.0, 67.5, 67.0]
     }
     IMPORTANT : "projections" DOIT être un tableau (Array) contenant EXACTEMENT 8 NOMBRES DÉCIMAUX (pas de string).
-    ''';
-
-    try {
+    ''';    try {
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
         temperature: 0.5,
@@ -6392,21 +6588,22 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
             _projectedSpots = newSpots;
             _projectionData = {
-              'message': "Les projections ci-dessus ont été générées par l'intelligence artificielle Mistral.",
+              'message':
+                  "Les projections ci-dessus ont Ã©tÃ© gÃ©nÃ©rÃ©es par l'intelligence artificielle Mistral.",
               'projections': aiProjectionData,
-              'time_message': "Projections IA activées"
+              'time_message': "Projections IA activÃ©es",
             };
           }
         });
       } else {
-        throw Exception('Réponse IA vide');
+        throw Exception('RÃ©ponse IA vide');
       }
     } catch (e) {
       debugPrint('Erreur IA: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Erreur IA: Réseau ou Serveur indisponible.'),
+            content: Text('Erreur IA: RÃ©seau ou Serveur indisponible.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -6479,9 +6676,9 @@ class _EvolutionTabState extends State<EvolutionTab> {
                     );
                     widget.addWeightEntry(
                       entryToSave,
-                    ); // Le didUpdateWidget se chargera de rafraîchir
+                    ); // Le didUpdateWidget se chargera de rafraÃ®chir
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text("Veuillez entrer un poids valide."),
                         backgroundColor: Colors.red,
@@ -6496,15 +6693,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
     );
   }
 
-  // CORRECTION: Le bouton de suppression rafraîchit maintenant l'UI.
+  // CORRECTION: Le bouton de suppression rafraÃ®chit maintenant l'UI.
   void _showDeleteWeightDialog(WeightEntry entry) {
     showDialog(
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Supprimer la pesée ?'),
+            title: const Text('Supprimer la pesÃ©e ?'),
             content: Text(
-              'Voulez-vous vraiment supprimer la pesée du ${DateFormat('d MMMM', 'fr_FR').format(entry.date)} ?',
+              'Voulez-vous vraiment supprimer la pesÃ©e du ${DateFormat('d MMMM', 'fr_FR').format(entry.date)} ?',
             ),
             actions: [
               TextButton(
@@ -6516,7 +6713,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                   Navigator.pop(ctx);
                   widget.deleteWeightEntry(
                     entry.id,
-                  ); // Le didUpdateWidget se chargera de rafraîchir
+                  ); // Le didUpdateWidget se chargera de rafraÃ®chir
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 child: const Text('Supprimer'),
@@ -6526,14 +6723,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
     );
   }
 
-  // CORRECTION: Algorithme de projection entièrement revu pour plus de fiabilité.
+  // CORRECTION: Algorithme de projection entiÃ¨rement revu pour plus de fiabilitÃ©.
   Map<String, dynamic> _getWeightProjections() {
-    if (widget.userProfile == null)
+    if (widget.userProfile == null) {
       return {
         'message': 'Profil utilisateur manquant.',
         'projections': [],
         'time_message': '',
       };
+    }
     final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
       ..sort((a, b) => a.date.compareTo(b.date));
     final currentWeight =
@@ -6560,12 +6758,13 @@ class _EvolutionTabState extends State<EvolutionTab> {
       };
     }
 
-    if (sortedEntries.length < 2)
+    if (sortedEntries.length < 2) {
       return {
-        'message': 'Ajoutez au moins deux pesées pour activer les projections.',
+        'message': 'Ajoutez au moins deux pesÃ©es pour activer les projections.',
         'projections': [],
         'time_message': '',
       };
+    }
 
     // CAS 2: Calcul pour perte ou gain de poids
     final profile = widget.userProfile!;
@@ -6654,7 +6853,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
             ? (weightBasedWeeklyChange * 0.7 + calorieBasedWeeklyChange * 0.3)
             : calorieBasedWeeklyChange;
 
-    // MODIFICATION: On retire l'influence du sommeil et on garde celle de la diète
+    // MODIFICATION: On retire l'influence du sommeil et on garde celle de la diÃ¨te
     switch (profile.dietQuality) {
       case 'saine':
         finalProjectionRate *= 1.10;
@@ -6667,30 +6866,32 @@ class _EvolutionTabState extends State<EvolutionTab> {
         break;
     }
     if (profile.stressLevel == 'high') finalProjectionRate *= 0.90;
-    // La qualité du sommeil n'influence plus la projection ici
+    // La qualitÃ© du sommeil n'influence plus la projection ici
 
-    if (goalType == 'lose' && finalProjectionRate >= 0)
+    if (goalType == 'lose' && finalProjectionRate >= 0) {
       finalProjectionRate = -0.3;
-    if (goalType == 'gain' && finalProjectionRate <= 0)
+    }
+    if (goalType == 'gain' && finalProjectionRate <= 0) {
       finalProjectionRate = 0.15;
+    }
 
     String timeMessage = '';
     String mainMessage =
-        "Basé sur vos données, l'algorithme estime une variation de ${finalProjectionRate.toStringAsFixed(2)} kg/semaine.";
+        "BasÃ© sur vos donnÃ©es, l'algorithme estime une variation de ${finalProjectionRate.toStringAsFixed(2)} kg/semaine.";
 
     if (goalType == 'lose') {
       final weightToLose = currentWeight - targetWeight;
       if (weightToLose > 0 && finalProjectionRate < 0) {
         int weeksNeeded = (weightToLose / finalProjectionRate.abs()).ceil();
         timeMessage =
-            "À ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
+            "Ã€ ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
       }
     } else if (goalType == 'gain') {
       final weightToGain = targetWeight - currentWeight;
       if (weightToGain > 0 && finalProjectionRate > 0) {
         int weeksNeeded = (weightToGain / finalProjectionRate.abs()).ceil();
         timeMessage =
-            "À ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
+            "Ã€ ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
       }
     }
 
@@ -6735,7 +6936,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
             const SizedBox(height: 10),
             if (_progressPhotos.isEmpty)
               const Text(
-                "Prenez une photo aujourd'hui pour démarrer votre journal visuel !",
+                "Prenez une photo aujourd'hui pour dÃ©marrer votre journal visuel !",
                 style: TextStyle(color: Colors.grey),
               )
             else
@@ -6770,7 +6971,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
       return const Center(
         heightFactor: 5,
         child: Text(
-          'Ajoutez au moins une pesée pour voir le graphique.',
+          'Ajoutez au moins une pesÃ©e pour voir le graphique.',
           style: TextStyle(color: Colors.grey),
         ),
       );
@@ -6931,18 +7132,18 @@ class _EvolutionTabState extends State<EvolutionTab> {
   Widget build(BuildContext context) {
     final goalType = widget.currentGoals.weightGoalType;
     String fabLabel = 'Enregistrer mon poids';
-    if (goalType == 'gain')
+    if (goalType == 'gain') {
       fabLabel = 'Suivi prise de masse';
-    else if (goalType == 'lose')
+    } else if (goalType == 'lose')
       fabLabel = 'Suivi perte de poids';
 
-    // Trier les entrées pour l'affichage de l'historique
+    // Trier les entrÃ©es pour l'affichage de l'historique
     final reversedEntries = List<WeightEntry>.from(widget.allWeightEntries)
       ..sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Évolution et Projections'),
+        title: const Text('Ã‰volution et Projections'),
         automaticallyImplyLeading: false,
       ),
       body: Column(
@@ -6959,12 +7160,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Graphique d\'Évolution du Poids',
+                          'Graphique d\'Ã‰volution du Poids',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Ligne continue: Historique, Pointillée: Projection, Rouge: Objectif',
+                          'Ligne continue: Historique, PointillÃ©e: Projection, Rouge: Objectif',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -6974,7 +7175,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                         _buildWeightChart(),
                         const SizedBox(height: 16),
                         Text(
-                          'Dernier poids enregistré : ${widget.allWeightEntries.isNotEmpty ? widget.allWeightEntries.last.weight.toStringAsFixed(1) : "N/A"} kg.',
+                          'Dernier poids enregistrÃ© : ${widget.allWeightEntries.isNotEmpty ? widget.allWeightEntries.last.weight.toStringAsFixed(1) : "N/A"} kg.',
                           style: TextStyle(
                             color: Colors.grey.shade700,
                             fontStyle: FontStyle.italic,
@@ -6999,9 +7200,8 @@ class _EvolutionTabState extends State<EvolutionTab> {
                             Expanded(
                               child: Text(
                                 'Analyse et Projections',
-                                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  color: Colors.blueGrey.shade900,
-                                ),
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(color: Colors.blueGrey.shade900),
                               ),
                             ),
                             Row(
@@ -7094,7 +7294,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                 reversedEntries.isEmpty
                     ? const Center(
                       child: Text(
-                        'Aucune mesure de poids enregistrée.',
+                        'Aucune mesure de poids enregistrÃ©e.',
                         style: TextStyle(color: Colors.grey),
                       ),
                     )
@@ -7124,7 +7324,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                                         fontSize: 16,
                                       ),
                                     ),
-                                    // CORRECTION: Le bouton de suppression appelle la fonction corrigée
+                                    // CORRECTION: Le bouton de suppression appelle la fonction corrigÃ©e
                                     IconButton(
                                       icon: const Icon(
                                         Icons.delete,
@@ -7155,7 +7355,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
 }
 
 // =============================================================================
-// RESTE DES ONGLETS (avec intégration Premium et UsageTracker)
+// RESTE DES ONGLETS (avec intÃ©gration Premium et UsageTracker)
 // =============================================================================
 
 class UserLimits {
@@ -7283,8 +7483,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final data = json.decode(response.body);
         if (data['status'] == 1 && data['product'] != null) {
           final product = data['product'];
-          final productName = product['product_name'] ?? 'Nom non trouvé';
-          final productCategory = product['categories'] ?? 'Catégorie inconnue';
+          final productName = product['product_name'] ?? 'Nom non trouvÃ©';
+          final productCategory = product['categories'] ?? 'CatÃ©gorie inconnue';
 
           setState(() {
             _productName = productName;
@@ -7339,7 +7539,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             }
           }
 
-          final bool canUseIA = widget.isPremiumUser ||
+          final bool canUseIA =
+              widget.isPremiumUser ||
               await widget.usageTrackerService.getDeepSeekApiCallCount() <
                   widget.usageTrackerService.deepSeekLimit;
 
@@ -7390,8 +7591,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               productCategory,
             );
             setState(
-              () => _errorMessage =
-                  "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
+              () =>
+                  _errorMessage =
+                      "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
             );
           }
 
@@ -7405,7 +7607,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           });
         } else {
           setState(
-            () => _errorMessage = 'Produit non trouvé pour ce code-barres.',
+            () => _errorMessage = 'Produit non trouvÃ© pour ce code-barres.',
           );
         }
       } else {
@@ -7461,14 +7663,14 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final packaging = adjustments['packaging'];
         if (packaging['non_recyclable_and_non_biodegradable_materials'] ==
             '1') {
-          maluses.add("Emballage non recyclable et non biodégradable");
+          maluses.add("Emballage non recyclable et non biodÃ©gradable");
         }
         if (packaging['packagings'] != null) {
           for (var pack in packaging['packagings']) {
             if (pack['recycling'] != 'en:recyclable' &&
                 pack['recycling'] != 'en:unknown') {
               maluses.add(
-                "Matériau d'emballage difficile à recycler: ${pack['material'].toString().replaceAll('en:', '')}",
+                "MatÃ©riau d'emballage difficile Ã  recycler: ${pack['material'].toString().replaceAll('en:', '')}",
               );
             }
           }
@@ -7484,7 +7686,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                   .replaceAll('en:', '')
                   .capitalize();
           warnings.add(
-            "Contient une espèce potentiellement menacée: $ingredient",
+            "Contient une espÃ¨ce potentiellement menacÃ©e: $ingredient",
           );
         }
       }
@@ -7494,7 +7696,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         if (agribalyseData['co2_total'] != null) {
           final co2 = (agribalyseData['co2_total'] as num).toDouble();
           setState(() {
-            _co2Info = "${co2.toStringAsFixed(2)} kg CO₂eq / kg de produit";
+            _co2Info = "${co2.toStringAsFixed(2)} kg COâ‚‚eq / kg de produit";
           });
         }
 
@@ -7538,7 +7740,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         _malusPoints = maluses;
         _environmentalWarnings = warnings;
         _lifecycleSummary =
-            "Analyse basée sur les données officielles Eco-Score. L'impact est calculé en fonction de l'origine des ingrédients, des méthodes de production, de l'emballage et des labels.";
+            "Analyse basÃ©e sur les donnÃ©es officielles Eco-Score. L'impact est calculÃ© en fonction de l'origine des ingrÃ©dients, des mÃ©thodes de production, de l'emballage et des labels.";
       });
     } else {
       setState(() => _isEcoScoreEstimated = true);
@@ -7576,9 +7778,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           });
         } else {
           setState(() {
-            if (_ecoScoreGrade == null) _ecoScoreGrade = result['eco_score_grade'];
-            if (_ecoScoreValue == null)
-              _ecoScoreValue = (result['eco_score_value'] as num?)?.toDouble();
+            _ecoScoreGrade ??= result['eco_score_grade'];
+            _ecoScoreValue ??= (result['eco_score_value'] as num?)?.toDouble();
             _lifecycleSummary = result['lifecycle_summary'];
             if (_co2Info == null && result['co2_emissions'] != null) {
               _co2Info = result['co2_emissions'];
@@ -7590,10 +7791,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           });
         }
       } else {
-        print('DeepSeek: réponse vide pour l\'analyse environnementale.');
+        print('DeepSeek: rÃ©ponse vide pour l\'analyse environnementale.');
       }
     } catch (e) {
-      print('Erreur lors de l\'appel à DeepSeek (Environnement): $e');
+      print('Erreur lors de l\'appel Ã  DeepSeek (Environnement): $e');
     }
   }
 
@@ -7603,17 +7804,17 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     String category,
   ) async {
     final String prompt = '''
-    En tant qu'expert en analyse du cycle de vie des aliments, analyse l'impact environnemental du produit "$productName" (catégorie: "$category") basé sur sa liste d'ingrédients: "${ingredients.join(', ')}".
+    En tant qu'expert en analyse du cycle de vie des aliments, analyse l'impact environnemental du produit "$productName" (catÃ©gorie: "$category") basÃ© sur sa liste d'ingrÃ©dients: "${ingredients.join(', ')}".
 
-    Fournis une réponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A à E (A = Très faible impact, E = Très fort impact).
-    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact, 100 = Très faible impact).
-    - "lifecycle_summary": Un résumé détaillé de l'analyse du cycle de vie. Justifie ton estimation en te basant sur les ingrédients fournis (ex: "La présence de boeuf augmente fortement l'empreinte carbone...", "Le transport de cacao a un impact significatif...").
-    - "co2_emissions": Une estimation textuelle des émissions de CO2. Exemple: "Estimé à 1.5 kg CO₂eq / kg de produit". Si impossible, mets null.
-    - "bonus_points": Une liste de 2-3 points positifs potentiels basés sur les ingrédients ou le processus. (Ex: "Agriculture biologique", "Emballage recyclable").
-    - "malus_points": Une liste de 2-3 points négatifs probables basés sur les ingrédients ou le processus. (Ex: "Ingrédients importés de loin", "Emballage non recyclable").
-    - "perspective": Un court paragraphe de mise en perspective comparant l'impact de ce produit à des produits similaires ou d'autres catégories. (Ex: "Bien que son score soit moyen, son impact reste bien inférieur à celui de la viande rouge...", ou "En tant que produit transformé, son impact est plus élevé que celui des légumes bruts.").
-    - "warnings": Une liste de points de vigilance importants. Identifie les ingrédients ou aspects pouvant être liés à des problématiques sensibles (déforestation, surpêche, espèces menacées, utilisation excessive de pesticides). Sois prudent et factuel. (Ex: "L'huile de palme est souvent associée à la déforestation.", "Le thon peut provenir de stocks menacés.").
+    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact, E = TrÃ¨s fort impact).
+    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact, 100 = TrÃ¨s faible impact).
+    - "lifecycle_summary": Un rÃ©sumÃ© dÃ©taillÃ© de l'analyse du cycle de vie. Justifie ton estimation en te basant sur les ingrÃ©dients fournis (ex: "La prÃ©sence de boeuf augmente fortement l'empreinte carbone...", "Le transport de cacao a un impact significatif...").
+    - "co2_emissions": Une estimation textuelle des Ã©missions de CO2. Exemple: "EstimÃ© Ã  1.5 kg COâ‚‚eq / kg de produit". Si impossible, mets null.
+    - "bonus_points": Une liste de 2-3 points positifs potentiels basÃ©s sur les ingrÃ©dients ou le processus. (Ex: "Agriculture biologique", "Emballage recyclable").
+    - "malus_points": Une liste de 2-3 points nÃ©gatifs probables basÃ©s sur les ingrÃ©dients ou le processus. (Ex: "IngrÃ©dients importÃ©s de loin", "Emballage non recyclable").
+    - "perspective": Un court paragraphe de mise en perspective comparant l'impact de ce produit Ã  des produits similaires ou d'autres catÃ©gories. (Ex: "Bien que son score soit moyen, son impact reste bien infÃ©rieur Ã  celui de la viande rouge...", ou "En tant que produit transformÃ©, son impact est plus Ã©levÃ© que celui des lÃ©gumes bruts.").
+    - "warnings": Une liste de points de vigilance importants. Identifie les ingrÃ©dients ou aspects pouvant Ãªtre liÃ©s Ã  des problÃ©matiques sensibles (dÃ©forestation, surpÃªche, espÃ¨ces menacÃ©es, utilisation excessive de pesticides). Sois prudent et factuel. (Ex: "L'huile de palme est souvent associÃ©e Ã  la dÃ©forestation.", "Le thon peut provenir de stocks menacÃ©s.").
     ''';
     await _runDeepSeekEnvironmentalAnalysis(prompt);
   }
@@ -7623,17 +7824,17 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     String category,
   ) async {
     final String prompt = '''
-    En tant qu'expert en analyse du cycle de vie des aliments, DÉDUIS l'impact environnemental probable du produit "$productName" (catégorie: "$category"), pour lequel la liste d'ingrédients est manquante. Base-toi sur les ingrédients et processus typiques de cette catégorie.
+    En tant qu'expert en analyse du cycle de vie des aliments, DÃ‰DUIS l'impact environnemental probable du produit "$productName" (catÃ©gorie: "$category"), pour lequel la liste d'ingrÃ©dients est manquante. Base-toi sur les ingrÃ©dients et processus typiques de cette catÃ©gorie.
 
-    Fournis une réponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A à E (A = Très faible impact, E = Très fort impact).
-    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact, 100 = Très faible impact).
-    - "lifecycle_summary": Un résumé détaillé de l'analyse du cycle de vie déduite. Justifie ton estimation en mentionnant les ingrédients probables (ex: "Contient probablement de l'huile de palme et du sucre dont la production peut avoir un impact...", "Le transport de ces produits transformés augmente l'empreinte.").
-    - "co2_emissions": Une estimation textuelle des émissions de CO2. Exemple: "Environ 0.8 kg CO₂eq / kg de produit". Si impossible, mets null.
-    - "bonus_points": Une liste de 2-3 points positifs potentiels basés sur ta déduction.
-    - "malus_points": Une liste de 2-3 points négatifs probables basés sur ta déduction.
-    - "perspective": Un court paragraphe de mise en perspective comparant l'impact probable de ce produit à des produits similaires ou d'autres catégories. (Ex: "L'impact d'une pâte à tartiner est généralement élevé à cause du cacao et de l'huile de palme, mais reste inférieur à celui de la plupart des produits carnés.").
-    - "warnings": Une liste de points de vigilance probables (ex: "Forte probabilité de contenir de l'huile de palme, associée à la déforestation.", "Présence probable de substances controversées.").
+    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact, E = TrÃ¨s fort impact).
+    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact, 100 = TrÃ¨s faible impact).
+    - "lifecycle_summary": Un rÃ©sumÃ© dÃ©taillÃ© de l'analyse du cycle de vie dÃ©duite. Justifie ton estimation en mentionnant les ingrÃ©dients probables (ex: "Contient probablement de l'huile de palme et du sucre dont la production peut avoir un impact...", "Le transport de ces produits transformÃ©s augmente l'empreinte.").
+    - "co2_emissions": Une estimation textuelle des Ã©missions de CO2. Exemple: "Environ 0.8 kg COâ‚‚eq / kg de produit". Si impossible, mets null.
+    - "bonus_points": Une liste de 2-3 points positifs potentiels basÃ©s sur ta dÃ©duction.
+    - "malus_points": Une liste de 2-3 points nÃ©gatifs probables basÃ©s sur ta dÃ©duction.
+    - "perspective": Un court paragraphe de mise en perspective comparant l'impact probable de ce produit Ã  des produits similaires ou d'autres catÃ©gories. (Ex: "L'impact d'une pÃ¢te Ã  tartiner est gÃ©nÃ©ralement Ã©levÃ© Ã  cause du cacao et de l'huile de palme, mais reste infÃ©rieur Ã  celui de la plupart des produits carnÃ©s.").
+    - "warnings": Une liste de points de vigilance probables (ex: "Forte probabilitÃ© de contenir de l'huile de palme, associÃ©e Ã  la dÃ©forestation.", "PrÃ©sence probable de substances controversÃ©es.").
     ''';
     await _runDeepSeekEnvironmentalAnalysis(prompt);
   }
@@ -7646,18 +7847,18 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   ) async {
     String ingredientsList =
         rawIngredients.isEmpty
-            ? "liste des ingrédients non fournie"
+            ? "liste des ingrÃ©dients non fournie"
             : rawIngredients.join(', ');
 
     final String prompt = '''
-    En tant qu'expert en impact environnemental alimentaire global, évalue l'éco-score GLOBAL du produit "$productName" (catégorie: "$category", ingrédients: "$ingredientsList", statut végétarien/végétalien connu: "$knownVegStatus").
+    En tant qu'expert en impact environnemental alimentaire global, Ã©value l'Ã©co-score GLOBAL du produit "$productName" (catÃ©gorie: "$category", ingrÃ©dients: "$ingredientsList", statut vÃ©gÃ©tarien/vÃ©gÃ©talien connu: "$knownVegStatus").
 
-    Ta mission est de fournir une note qui reflète l'impact réel de ce produit par rapport à l'ENSEMBLE du système alimentaire, et pas seulement par rapport à sa propre catégorie. Tu dois comparer son impact à celui d'autres grandes catégories comme les légumes frais, les légumineuses, la volaille, la viande rouge (bœuf), les produits laitiers, et les aliments ultra-transformés. Par exemple, une pâte à tartiner (cacao, huile de palme) et un steak haché industriel ont tous deux des impacts négatifs, mais tu dois déterminer lequel est globalement plus dommageable pour la planète et justifier pourquoi.
+    Ta mission est de fournir une note qui reflÃ¨te l'impact rÃ©el de ce produit par rapport Ã  l'ENSEMBLE du systÃ¨me alimentaire, et pas seulement par rapport Ã  sa propre catÃ©gorie. Tu dois comparer son impact Ã  celui d'autres grandes catÃ©gories comme les lÃ©gumes frais, les lÃ©gumineuses, la volaille, la viande rouge (bÅ“uf), les produits laitiers, et les aliments ultra-transformÃ©s. Par exemple, une pÃ¢te Ã  tartiner (cacao, huile de palme) et un steak hachÃ© industriel ont tous deux des impacts nÃ©gatifs, mais tu dois dÃ©terminer lequel est globalement plus dommageable pour la planÃ¨te et justifier pourquoi.
 
-    Fournis une réponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A à E (A = Très faible impact global, E = Très fort impact global).
-    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact global, 100 = Très faible impact global).
-    - "justification": Un paragraphe détaillé expliquant la note globale. Commence par situer le produit sur le spectre global de l'impact alimentaire. Ensuite, justifie en comparant explicitement le produit à d'autres catégories. Par exemple: "Ce produit carné a un impact intrinsèquement élevé comparé aux alternatives végétales, même si sa production est optimisée. L'élevage bovin est un contributeur majeur au méthane, un gaz à effet de serre bien plus puissant que le CO2, et requiert d'énormes surfaces agricoles, contribuant à la déforestation. Son impact est donc bien supérieur à celui des plats préparés végétariens, malgré leur transformation." ou "Bien que ce produit soit ultra-transformé et contienne des ingrédients comme l'huile de palme potentiellement liés à la déforestation, son impact global reste inférieur à celui de la plupart des produits d'origine animale comme le fromage ou la viande rouge, en raison des émissions de gaz à effet de serre et de l'utilisation des terres beaucoup plus faibles."
+    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact global, E = TrÃ¨s fort impact global).
+    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact global, 100 = TrÃ¨s faible impact global).
+    - "justification": Un paragraphe dÃ©taillÃ© expliquant la note globale. Commence par situer le produit sur le spectre global de l'impact alimentaire. Ensuite, justifie en comparant explicitement le produit Ã  d'autres catÃ©gories. Par exemple: "Ce produit carnÃ© a un impact intrinsÃ¨quement Ã©levÃ© comparÃ© aux alternatives vÃ©gÃ©tales, mÃªme si sa production est optimisÃ©e. L'Ã©levage bovin est un contributeur majeur au mÃ©thane, un gaz Ã  effet de serre bien plus puissant que le CO2, et requiert d'Ã©normes surfaces agricoles, contribuant Ã  la dÃ©forestation. Son impact est donc bien supÃ©rieur Ã  celui des plats prÃ©parÃ©s vÃ©gÃ©tariens, malgrÃ© leur transformation." ou "Bien que ce produit soit ultra-transformÃ© et contienne des ingrÃ©dients comme l'huile de palme potentiellement liÃ©s Ã  la dÃ©forestation, son impact global reste infÃ©rieur Ã  celui de la plupart des produits d'origine animale comme le fromage ou la viande rouge, en raison des Ã©missions de gaz Ã  effet de serre et de l'utilisation des terres beaucoup plus faibles."
     ''';
     await _runDeepSeekEnvironmentalAnalysis(prompt, isGlobalScore: true);
   }
@@ -7671,25 +7872,25 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     if (rawIngredients.isEmpty) {
       setState(() {
         _deepSeekSummary =
-            "Analyse des ingrédients impossible car la liste n'est pas fournie.";
+            "Analyse des ingrÃ©dients impossible car la liste n'est pas fournie.";
       });
       return;
     }
     await widget.usageTrackerService.incrementDeepSeekApiCall();
     final String ingredientsList = rawIngredients.join(', ');
     final String prompt = '''
-    En tant qu'expert en nutrition et alimentation, analyse le produit "$productName" avec les ingrédients suivants: "$ingredientsList". Le statut connu est "$knownVegStatus".
-    IMPORTANT: N'analyse PAS les additifs (codes E) dans la liste 'analyzed_ingredients', ils sont gérés séparément. Concentre-toi sur les autres ingrédients.
+    En tant qu'expert en nutrition et alimentation, analyse le produit "$productName" avec les ingrÃ©dients suivants: "$ingredientsList". Le statut connu est "$knownVegStatus".
+    IMPORTANT: N'analyse PAS les additifs (codes E) dans la liste 'analyzed_ingredients', ils sont gÃ©rÃ©s sÃ©parÃ©ment. Concentre-toi sur les autres ingrÃ©dients.
 
-    Fournis une réponse au format JSON strict. Le JSON doit contenir:
-    - "analyzed_ingredients": Une liste où chaque élément est un objet pour les ingrédients NON-ADDITIFS avec:
-        - "name": Le nom de l'ingrédient.
-        - "description": Une brève description de son rôle et son impact sur la santé.
-        - "category": Une catégorie simple ("Sucre", "Céréale", "Huile Végétale", "Sel", "Fruit", "Légume", "Autre").
-        - "health_score": Une note de santé de 1 à 5 (1=Très mauvais, 5=Très bon).
-    - "overall_health_verdict": Un verdict global concis ("Excellent", "Bon", "Moyen", "Médiocre", "À éviter").
-    - "health_summary": Un résumé de 2-3 phrases expliquant le verdict, en mettant en avant les points forts et faibles.
-    - "vegetarian_status_analysis": Un objet avec "status" ('vegan', 'vegetarian', ou 'non-vegetarian') et "justification" déduisant le statut le plus probable en te basant sur les ingrédients, surtout si le statut connu est "unknown". Justifie brièvement.
+    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir:
+    - "analyzed_ingredients": Une liste oÃ¹ chaque Ã©lÃ©ment est un objet pour les ingrÃ©dients NON-ADDITIFS avec:
+        - "name": Le nom de l'ingrÃ©dient.
+        - "description": Une brÃ¨ve description de son rÃ´le et son impact sur la santÃ©.
+        - "category": Une catÃ©gorie simple ("Sucre", "CÃ©rÃ©ale", "Huile VÃ©gÃ©tale", "Sel", "Fruit", "LÃ©gume", "Autre").
+        - "health_score": Une note de santÃ© de 1 Ã  5 (1=TrÃ¨s mauvais, 5=TrÃ¨s bon).
+    - "overall_health_verdict": Un verdict global concis ("Excellent", "Bon", "Moyen", "MÃ©diocre", "Ã€ Ã©viter").
+    - "health_summary": Un rÃ©sumÃ© de 2-3 phrases expliquant le verdict, en mettant en avant les points forts et faibles.
+    - "vegetarian_status_analysis": Un objet avec "status" ('vegan', 'vegetarian', ou 'non-vegetarian') et "justification" dÃ©duisant le statut le plus probable en te basant sur les ingrÃ©dients, surtout si le statut connu est "unknown". Justifie briÃ¨vement.
     ''';
     try {
       final result = await SL.aiService.fetchJSONResponse(
@@ -7710,10 +7911,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           }
         });
       } else {
-        print('DeepSeek: réponse vide pour l\'analyse des ingrédients.');
+        print('DeepSeek: rÃ©ponse vide pour l\'analyse des ingrÃ©dients.');
       }
     } catch (e) {
-      print('Erreur lors de l\'appel à DeepSeek (Ingrédients): $e');
+      print('Erreur lors de l\'appel Ã  DeepSeek (IngrÃ©dients): $e');
     }
   }
 
@@ -7741,8 +7942,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         case 'moyen':
           deepSeekIngrScore = 5.0;
           break;
-        case 'médiocre':
-        case 'à éviter':
+        case 'mÃ©diocre':
+        case 'Ã  Ã©viter':
           deepSeekIngrScore = 1.0;
           break;
         default:
@@ -7802,29 +8003,29 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     double score = 10.0;
 
     if (category.contains('candies') || category.contains('sweets')) {
-      if (sugar > 60)
+      if (sugar > 60) {
         score -= 6;
-      else if (sugar > 40)
+      } else if (sugar > 40)
         score -= 3;
       if (saturatedFat > 5) score -= 2;
     } else if (category.contains('cereals')) {
-      if (sugar > 25)
+      if (sugar > 25) {
         score -= 5;
-      else if (sugar > 15)
+      } else if (sugar > 15)
         score -= 3;
       if (saturatedFat > 5) score -= 2;
     } else {
-      if (sugar > 22.5)
+      if (sugar > 22.5) {
         score -= 3;
-      else if (sugar > 10)
+      } else if (sugar > 10)
         score -= 1.5;
-      if (saturatedFat > 10)
+      if (saturatedFat > 10) {
         score -= 3;
-      else if (saturatedFat > 5)
+      } else if (saturatedFat > 5)
         score -= 1.5;
-      if (salt > 1.8)
+      if (salt > 1.8) {
         score -= 3;
-      else if (salt > 1.2)
+      } else if (salt > 1.2)
         score -= 1.5;
     }
     return score < 0 ? 0 : score;
@@ -7880,7 +8081,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Détails du Produit'),
+        title: const Text('DÃ©tails du Produit'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.pop(context),
@@ -7914,19 +8115,19 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                         source: 'Scan OFF',
                       ),
                     );
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          '"${_productName!}" ajouté à votre journal !',
+                          '"${_productName!}" ajoutÃ© Ã  votre journal !',
                         ),
                         backgroundColor: Colors.green,
                       ),
                     );
                   } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
+                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Impossible d\'ajouter au journal: données nutritionnelles manquantes.',
+                          'Impossible d\'ajouter au journal: donnÃ©es nutritionnelles manquantes.',
                         ),
                         backgroundColor: Colors.red,
                       ),
@@ -8033,7 +8234,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                             Flexible(
                               child: ScoreCircle(
                                 score: _overallHealthScore!,
-                                title: 'Score Santé',
+                                title: 'Score SantÃ©',
                               ),
                             ),
                           if (_ecoScoreValue != null)
@@ -8075,7 +8276,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                               child: Flexible(
                                 child: ScoreCircle(
                                   score: _categoryHealthScore!,
-                                  title: 'Note Catégorie',
+                                  title: 'Note CatÃ©gorie',
                                 ),
                               ),
                             ),
@@ -8108,7 +8309,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               delegate: _SliverAppBarDelegate(
                 const TabBar(
                   tabs: [
-                    Tab(icon: Icon(Icons.health_and_safety), text: 'Santé'),
+                    Tab(icon: Icon(Icons.health_and_safety), text: 'SantÃ©'),
                     Tab(icon: Icon(Icons.eco), text: 'Environnement'),
                   ],
                 ),
@@ -8161,7 +8362,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           ),
         if (_deepSeekSummary != null)
           AnalysisCard(
-            title: "Analyse des Ingrédients par l'IA",
+            title: "Analyse des IngrÃ©dients par l'IA",
             content: _deepSeekSummary!,
             verdict: _deepSeekOverallHealthVerdict,
           ),
@@ -8181,7 +8382,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Meilleures alternatives dans la même catégorie",
+                  "Meilleures alternatives dans la mÃªme catÃ©gorie",
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 10),
@@ -8191,7 +8392,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                   )
                 else
                   const Text(
-                    "Aucune meilleure alternative trouvée dans cette catégorie.",
+                    "Aucune meilleure alternative trouvÃ©e dans cette catÃ©gorie.",
                     style: TextStyle(color: Colors.grey),
                   ),
               ],
@@ -8240,7 +8441,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             child: Padding(
               padding: EdgeInsets.all(32.0),
               child: Text(
-                "Aucune donnée environnementale détaillée disponible pour ce produit.",
+                "Aucune donnÃ©e environnementale dÃ©taillÃ©e disponible pour ce produit.",
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
             ),
@@ -8360,7 +8561,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
       if (result != null) {
         await widget.usageTrackerService.incrementDeepSeekApiCall();
         return {
-          'name': result['food_name'] ?? 'Repas estimé',
+          'name': result['food_name'] ?? 'Repas estimÃ©',
           'calories': result['calories'] ?? 0,
           'proteins': (result['proteins'] as num?)?.toDouble() ?? 0.0,
           'carbs': (result['carbs'] as num?)?.toDouble() ?? 0.0,
@@ -8372,7 +8573,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
     }
 
     return {
-      'name': isImage ? 'Repas par photo (IA - échec)' : 'Repas par texte (IA - échec)',
+      'name':
+          isImage
+              ? 'Repas par photo (IA - Ã©chec)'
+              : 'Repas par texte (IA - Ã©chec)',
       'calories': 0,
       'proteins': 0.0,
       'carbs': 0.0,
@@ -8411,7 +8615,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   onChanged: (value) => calories = int.tryParse(value) ?? 0,
                 ),
                 TextField(
-                  decoration: const InputDecoration(labelText: 'Protéines (g)'),
+                  decoration: const InputDecoration(labelText: 'ProtÃ©ines (g)'),
                   keyboardType: TextInputType.number,
                   onChanged:
                       (value) => proteins = double.tryParse(value) ?? 0.0,
@@ -8427,7 +8631,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   onChanged: (value) => fats = double.tryParse(value) ?? 0.0,
                 ),
                 DropdownButtonFormField<MealType>(
-                  value: selectedMealType,
+                  initialValue: selectedMealType,
                   decoration: const InputDecoration(labelText: 'Type de repas'),
                   items:
                       MealType.values
@@ -8470,7 +8674,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   );
                   Navigator.pop(ctx);
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
                         "Veuillez remplir au moins le nom et les calories.",
@@ -8497,10 +8701,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
       final photoAnalysisCount =
           await widget.usageTrackerService.getPhotoAnalysisCount();
       if (photoAnalysisCount >= UserLimits.freePhotoAnalysisPerDay) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimité !",
+              "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
             ),
             backgroundColor: Colors.red,
           ),
@@ -8537,10 +8741,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
             source: 'Historique Scan OFF',
           ),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '"${historicalProduct.name}" ajouté depuis l\'historique des scans !',
+              '"${historicalProduct.name}" ajoutÃ© depuis l\'historique des scans !',
             ),
             backgroundColor: Colors.green,
           ),
@@ -8576,10 +8780,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
             source: 'Open Food Facts',
           ),
         );
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '"${offProduct['product_name']}" ajouté depuis Open Food Facts !',
+              '"${offProduct['product_name']}" ajoutÃ© depuis Open Food Facts !',
             ),
             backgroundColor: Colors.green,
           ),
@@ -8588,8 +8792,8 @@ class _CaloriesTabState extends State<CaloriesTab> {
       }
     }
 
-    // 4. Estimation par IA (pour les aliments non trouvés ou les ingrédients sans code-barres)
-    ScaffoldMessenger.of(context).showSnackBar(
+    // 4. Estimation par IA (pour les aliments non trouvÃ©s ou les ingrÃ©dients sans code-barres)
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
           "Recherche dans Open Food Facts et analyse IA en cours...",
@@ -8613,20 +8817,20 @@ class _CaloriesTabState extends State<CaloriesTab> {
           ),
         );
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Repas estimé et ajouté par l'IA : ${result['name']} !",
+              "Repas estimÃ© et ajoutÃ© par l'IA : ${result['name']} !",
             ),
             backgroundColor: Colors.green,
           ),
         );
       } else {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "L'IA n'a pas pu estimer les calories de manière fiable.",
+              "L'IA n'a pas pu estimer les calories de maniÃ¨re fiable.",
             ),
             backgroundColor: Colors.red,
           ),
@@ -8634,7 +8838,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
       }
     } catch (e) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Erreur lors de l'estimation par IA: $e"),
           backgroundColor: Colors.red,
@@ -8650,9 +8854,9 @@ class _CaloriesTabState extends State<CaloriesTab> {
     if (image != null) {
       _addFoodWithIntelligentInput(image.path, isPhoto: true);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Aucune image sélectionnée."),
+          content: Text("Aucune image sÃ©lectionnÃ©e."),
           backgroundColor: Colors.orange,
         ),
       );
@@ -8667,10 +8871,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimité !",
+              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
             ),
             backgroundColor: Colors.red,
           ),
@@ -8683,7 +8887,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('Décrire votre repas pour l\'IA'),
+          title: const Text('DÃ©crire votre repas pour l\'IA'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -8695,7 +8899,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                 maxLines: 3,
               ),
               DropdownButtonFormField<MealType>(
-                value: selectedMealType,
+                initialValue: selectedMealType,
                 decoration: const InputDecoration(labelText: 'Type de repas'),
                 items:
                     MealType.values
@@ -8729,9 +8933,9 @@ class _CaloriesTabState extends State<CaloriesTab> {
                     isPhoto: false,
                   );
                 } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text("Veuillez décrire votre repas."),
+                      content: Text("Veuillez dÃ©crire votre repas."),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -8791,8 +8995,11 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.restaurant_menu, color: Colors.teal),
-                  title: const Text('Créer une recette personnalisée'),
+                  leading: const Icon(
+                    Icons.restaurant_menu,
+                    color: Colors.teal,
+                  ),
+                  title: const Text('CrÃ©er une recette personnalisÃ©e'),
                   onTap: () async {
                     Navigator.pop(ctx);
                     final newRecipeFood = await Navigator.push<FoodEntry>(
@@ -8803,10 +9010,10 @@ class _CaloriesTabState extends State<CaloriesTab> {
                     );
                     if (newRecipeFood != null) {
                       widget.addFoodEntry(newRecipeFood);
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'Recette ajoutée : ${newRecipeFood.name}',
+                            'Recette ajoutÃ©e : ${newRecipeFood.name}',
                           ),
                           backgroundColor: Colors.green,
                         ),
@@ -8902,7 +9109,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                             child: Text(type.toCapitalizedString()),
                           );
                         })
-                        .toList(),
+                        ,
                   ],
                 ),
               ],
@@ -8913,7 +9120,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                 _filteredFoodLog.isEmpty
                     ? const Center(
                       child: Text(
-                        'Aucun aliment enregistré pour ce jour/filtre. Ajoutez-en un !',
+                        'Aucun aliment enregistrÃ© pour ce jour/filtre. Ajoutez-en un !',
                         style: TextStyle(fontSize: 16, color: Colors.grey),
                       ),
                     )
@@ -8946,7 +9153,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                                 ),
                                 if (entry.isAiEstimated)
                                   Text(
-                                    'Estimé par IA (${entry.source})',
+                                    'EstimÃ© par IA (${entry.source})',
                                     style: const TextStyle(
                                       fontStyle: FontStyle.italic,
                                       color: Colors.grey,
@@ -9036,7 +9243,7 @@ extension ListExtensions<T> on List<T> {
     return null;
   }
 
-  // MÉTHODE AJOUTÉE POUR CORRIGER L'ERREUR
+  // MÃ‰THODE AJOUTÃ‰E POUR CORRIGER L'ERREUR
   T? lastWhereOrNull(bool Function(T) test) {
     for (var i = length - 1; i >= 0; i--) {
       if (test(this[i])) {
@@ -9048,19 +9255,19 @@ extension ListExtensions<T> on List<T> {
 }
 
 // =============================================================================
-// NOUVELLE PAGE DE JEÛNE (REFACTORISÉE)
+// NOUVELLE PAGE DE JEÃ›NE (REFACTORISÃ‰E)
 // =============================================================================
 
-// --- Modèles de données pour le jeûne ---
+// --- ModÃ¨les de donnÃ©es pour le jeÃ»ne ---
 
 class FastingPlan {
   final String id;
   final String name;
   final String description;
-  final String level; // Débutant, Intermédiaire, Avancé
+  final String level; // DÃ©butant, IntermÃ©diaire, AvancÃ©
   final Duration fastingDuration;
   final Duration eatingDuration;
-  final List<String> goals; // 'Perte de poids', 'Détox', etc.
+  final List<String> goals; // 'Perte de poids', 'DÃ©tox', etc.
   final String exampleSchedule;
   final bool isPremium;
 
@@ -9091,86 +9298,86 @@ class FastingStage {
   });
 }
 
-// --- Données pour les plans et étapes ---
+// --- DonnÃ©es pour les plans et Ã©tapes ---
 final List<FastingPlan> predefinedFastingPlans = [
   FastingPlan(
     id: '12-12',
     name: '12:12 Le Circadien',
     description:
-        'Le point de départ idéal pour découvrir le jeûne intermittent et aligner son horloge biologique.',
-    level: '🟢 Débutant',
+        'Le point de dÃ©part idÃ©al pour dÃ©couvrir le jeÃ»ne intermittent et aligner son horloge biologique.',
+    level: 'ðŸŸ¢ DÃ©butant',
     fastingDuration: const Duration(hours: 12),
     eatingDuration: const Duration(hours: 12),
-    goals: ['Bien-être', 'maintain'],
-    exampleSchedule: 'Manger de 7h à 19h.',
+    goals: ['Bien-Ãªtre', 'maintain'],
+    exampleSchedule: 'Manger de 7h Ã  19h.',
   ),
   FastingPlan(
     id: '14-10',
     name: '14:10 Douce Progression',
     description:
-        'Une étape douce pour augmenter progressivement la durée du jeûne et ses bénéfices.',
-    level: '🟢 Débutant',
+        'Une Ã©tape douce pour augmenter progressivement la durÃ©e du jeÃ»ne et ses bÃ©nÃ©fices.',
+    level: 'ðŸŸ¢ DÃ©butant',
     fastingDuration: const Duration(hours: 14),
     eatingDuration: const Duration(hours: 10),
     goals: ['lose', 'maintain'],
-    exampleSchedule: 'Manger de 8h à 18h.',
+    exampleSchedule: 'Manger de 8h Ã  18h.',
   ),
   FastingPlan(
     id: '16-8',
     name: '16:8 Le Classique',
     description:
-        'Le plan le plus populaire, équilibré pour la perte de poids et le bien-être métabolique.',
-    level: '🟡 Intermédiaire',
+        'Le plan le plus populaire, Ã©quilibrÃ© pour la perte de poids et le bien-Ãªtre mÃ©tabolique.',
+    level: 'ðŸŸ¡ IntermÃ©diaire',
     fastingDuration: const Duration(hours: 16),
     eatingDuration: const Duration(hours: 8),
     goals: ['lose', 'gain'],
-    exampleSchedule: 'Manger de 12h à 20h.',
+    exampleSchedule: 'Manger de 12h Ã  20h.',
   ),
   FastingPlan(
     id: '18-6',
-    name: '18:6 Le Concentré',
+    name: '18:6 Le ConcentrÃ©',
     description:
-        'Approfondit les bénéfices du 16:8 avec une fenêtre d\'alimentation plus courte.',
-    level: '🟡 Intermédiaire',
+        'Approfondit les bÃ©nÃ©fices du 16:8 avec une fenÃªtre d\'alimentation plus courte.',
+    level: 'ðŸŸ¡ IntermÃ©diaire',
     fastingDuration: const Duration(hours: 18),
     eatingDuration: const Duration(hours: 6),
     goals: ['lose', 'gain'],
-    exampleSchedule: 'Manger de 14h à 20h.',
+    exampleSchedule: 'Manger de 14h Ã  20h.',
   ),
   FastingPlan(
     id: '20-4',
     name: '20:4 Le Guerrier',
     description:
-        'Un jeûne plus intense pour ceux qui cherchent à maximiser l\'autophagie et la perte de graisse.',
-    level: '🔴 Avancé',
+        'Un jeÃ»ne plus intense pour ceux qui cherchent Ã  maximiser l\'autophagie et la perte de graisse.',
+    level: 'ðŸ”´ AvancÃ©',
     fastingDuration: const Duration(hours: 20),
     eatingDuration: const Duration(hours: 4),
     goals: ['lose'],
-    exampleSchedule: 'Manger sur une fenêtre de 4h.',
+    exampleSchedule: 'Manger sur une fenÃªtre de 4h.',
     isPremium: true,
   ),
   FastingPlan(
     id: 'omad',
     name: 'OMAD (23:1)',
     description:
-        'Un seul repas par jour. Maximise les effets du jeûne. Recommandé aux jeûneurs expérimentés.',
-    level: '🔴 Avancé',
+        'Un seul repas par jour. Maximise les effets du jeÃ»ne. RecommandÃ© aux jeÃ»neurs expÃ©rimentÃ©s.',
+    level: 'ðŸ”´ AvancÃ©',
     fastingDuration: const Duration(hours: 23),
     eatingDuration: const Duration(hours: 1),
     goals: ['lose'],
-    exampleSchedule: 'Manger sur une fenêtre de 1h.',
+    exampleSchedule: 'Manger sur une fenÃªtre de 1h.',
     isPremium: true,
   ),
   FastingPlan(
     id: '36h',
-    name: 'Jeûne de 36h',
+    name: 'JeÃ»ne de 36h',
     description:
-        'Un jeûne prolongé (1 jour sur 2) pour un "reset" métabolique profond. A n\'effectuer qu\'occasionnellement.',
-    level: '⭐ Expert',
+        'Un jeÃ»ne prolongÃ© (1 jour sur 2) pour un "reset" mÃ©tabolique profond. A n\'effectuer qu\'occasionnellement.',
+    level: 'â­ Expert',
     fastingDuration: const Duration(hours: 36),
     eatingDuration: const Duration(hours: 12),
     goals: ['lose', 'detox'],
-    exampleSchedule: 'Jeûner un jour complet.',
+    exampleSchedule: 'JeÃ»ner un jour complet.',
     isPremium: true,
   ),
 ];
@@ -9179,61 +9386,61 @@ final List<FastingStage> fastingStages = [
   FastingStage(
     title: "Anabolisme (0-4h)",
     description:
-        "Le corps digère et utilise l'énergie du dernier repas. Le taux d'insuline est élevé.",
+        "Le corps digÃ¨re et utilise l'Ã©nergie du dernier repas. Le taux d'insuline est Ã©levÃ©.",
     startHour: const Duration(hours: 0),
     icon: Icons.restaurant,
   ),
   FastingStage(
     title: "Catabolisme (4-12h)",
     description:
-        "Le corps a fini de digérer. Les réserves de glycogène sont utilisées pour l'énergie. L'insuline baisse.",
+        "Le corps a fini de digÃ©rer. Les rÃ©serves de glycogÃ¨ne sont utilisÃ©es pour l'Ã©nergie. L'insuline baisse.",
     startHour: const Duration(hours: 4),
     icon: Icons.battery_charging_full,
   ),
   FastingStage(
-    title: "Cétose (12-16h)",
+    title: "CÃ©tose (12-16h)",
     description:
-        "Les réserves de glycogène s'épuisent. Le corps commence à brûler les graisses stockées (cétones).",
+        "Les rÃ©serves de glycogÃ¨ne s'Ã©puisent. Le corps commence Ã  brÃ»ler les graisses stockÃ©es (cÃ©tones).",
     startHour: const Duration(hours: 12),
     icon: Icons.local_fire_department,
   ),
   FastingStage(
     title: "Autophagie (16h+)",
     description:
-        "Le processus de nettoyage cellulaire démarre, recyclant les vieilles cellules pour régénérer le corps.",
+        "Le processus de nettoyage cellulaire dÃ©marre, recyclant les vieilles cellules pour rÃ©gÃ©nÃ©rer le corps.",
     startHour: const Duration(hours: 16),
     icon: Icons.recycling,
   ),
   FastingStage(
     title: "Hormone de Croissance (24h+)",
     description:
-        "Pic de production de l'hormone de croissance, favorisant la réparation musculaire et la combustion des graisses.",
+        "Pic de production de l'hormone de croissance, favorisant la rÃ©paration musculaire et la combustion des graisses.",
     startHour: const Duration(hours: 24),
     icon: Icons.trending_up,
   ),
   FastingStage(
-    title: "Régénération (36h+)",
+    title: "RÃ©gÃ©nÃ©ration (36h+)",
     description:
-        "L'autophagie est à son maximum, favorisant une régénération cellulaire profonde.",
+        "L'autophagie est Ã  son maximum, favorisant une rÃ©gÃ©nÃ©ration cellulaire profonde.",
     startHour: const Duration(hours: 36),
     icon: Icons.health_and_safety,
   ),
 ];
 
 // =============================================================================
-// NOUVEAUX MODÈLES DE DONNÉES POUR LE PROGRAMME DE JEÛNE
+// NOUVEAUX MODÃˆLES DE DONNÃ‰ES POUR LE PROGRAMME DE JEÃ›NE
 // =============================================================================
 
-/// Représente le statut d'un jeûne planifié dans le programme.
+/// ReprÃ©sente le statut d'un jeÃ»ne planifiÃ© dans le programme.
 enum FastingStatus {
-  scheduled, // Prévu mais pas encore fait
-  completedSuccess, // Terminé avec succès (objectif atteint ou dépassé)
-  completedPartial, // Terminé mais sans atteindre l'objectif de durée
-  skipped, // Jour passé sans que le jeûne ait été fait
-  adhoc, // Un jeûne non prévu qui a été ajouté
+  scheduled, // PrÃ©vu mais pas encore fait
+  completedSuccess, // TerminÃ© avec succÃ¨s (objectif atteint ou dÃ©passÃ©)
+  completedPartial, // TerminÃ© mais sans atteindre l'objectif de durÃ©e
+  skipped, // Jour passÃ© sans que le jeÃ»ne ait Ã©tÃ© fait
+  adhoc, // Un jeÃ»ne non prÃ©vu qui a Ã©tÃ© ajoutÃ©
 }
 
-/// Représente une seule entrée de jeûne dans le programme mensuel.
+/// ReprÃ©sente une seule entrÃ©e de jeÃ»ne dans le programme mensuel.
 class FastingProgramEntry {
   final DateTime date;
   final Duration targetDuration;
@@ -9271,7 +9478,7 @@ class FastingProgramEntry {
       );
 }
 
-/// Représente le programme de jeûne complet pour un mois.
+/// ReprÃ©sente le programme de jeÃ»ne complet pour un mois.
 class MonthlyFastingProgram {
   final String id; // Format 'YYYY-MM'
   final List<FastingProgramEntry> entries;
@@ -9303,10 +9510,10 @@ class MonthlyFastingProgram {
 }
 
 // =============================================================================
-// NOUVEAU SERVICE POUR LA GÉNÉRATION DU PROGRAMME DE JEÛNE
+// NOUVEAU SERVICE POUR LA GÃ‰NÃ‰RATION DU PROGRAMME DE JEÃ›NE
 // =============================================================================
 
-// NOUVEAU SERVICE POUR LA GÉNÉRATION DU PROGRAMME DE JEÛNE
+// NOUVEAU SERVICE POUR LA GÃ‰NÃ‰RATION DU PROGRAMME DE JEÃ›NE
 class FastingProgramService {
   final UserProfile userProfile;
   final DailyGoal goals;
@@ -9318,28 +9525,37 @@ class FastingProgramService {
     required this.isVip,
   });
 
-  /// Point d'entrée principal pour générer le programme du mois.
-  /// L'adherenceRate (0.0 à 1.0) permet d'ajuster la difficulté.
+  /// Point d'entrÃ©e principal pour gÃ©nÃ©rer le programme du mois.
+  /// L'adherenceRate (0.0 Ã  1.0) permet d'ajuster la difficultÃ©.
   MonthlyFastingProgram generateProgramForCurrentMonth({
     double adherenceRate = 1.0,
   }) {
     final now = DateTime.now();
-    return generateProgramForMonth(targetMonth: now, adherenceRate: adherenceRate);
+    return generateProgramForMonth(
+      targetMonth: now,
+      adherenceRate: adherenceRate,
+    );
   }
 
-  /// Génère un programme pour un mois spécifique.
+  /// GÃ©nÃ¨re un programme pour un mois spÃ©cifique.
   MonthlyFastingProgram generateProgramForMonth({
     required DateTime targetMonth,
     double adherenceRate = 1.0,
   }) {
     final monthId = DateFormat('yyyy-MM').format(targetMonth);
-    final daysInMonth = DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
+    final daysInMonth =
+        DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
 
-    // Pour les VIP, on simule une génération par IA plus complexe
-    return _generateSmartProgram(monthId, targetMonth, daysInMonth, adherenceRate);
+    // Pour les VIP, on simule une gÃ©nÃ©ration par IA plus complexe
+    return _generateSmartProgram(
+      monthId,
+      targetMonth,
+      daysInMonth,
+      adherenceRate,
+    );
   }
 
-  /// Génération intelligente pour tous les utilisateurs, avec plus de fonctionnalités pour les VIP.
+  /// GÃ©nÃ©ration intelligente pour tous les utilisateurs, avec plus de fonctionnalitÃ©s pour les VIP.
   MonthlyFastingProgram _generateSmartProgram(
     String monthId,
     DateTime now,
@@ -9349,7 +9565,7 @@ class FastingProgramService {
     final List<FastingProgramEntry> entries = [];
     final random = Random();
 
-    // 1. Définir la difficulté de base selon l'expérience de l'utilisateur
+    // 1. DÃ©finir la difficultÃ© de base selon l'expÃ©rience de l'utilisateur
     List<String> allowedPlans;
     switch (userProfile.fastingExperience) {
       case 'expert':
@@ -9364,7 +9580,7 @@ class FastingProgramService {
         break;
     }
 
-    // 2. Définir la fréquence de base selon l'objectif principal
+    // 2. DÃ©finir la frÃ©quence de base selon l'objectif principal
     int baseFastsPerWeek;
     switch (goals.weightGoalType) {
       case 'lose':
@@ -9374,7 +9590,7 @@ class FastingProgramService {
         baseFastsPerWeek = 2;
         allowedPlans.removeWhere(
           (p) => p == '20-4' || p == 'omad',
-        ); // Éviter les jeûnes longs pour la prise de masse
+        ); // Ã‰viter les jeÃ»nes longs pour la prise de masse
         break;
       case 'maintain':
       default:
@@ -9382,19 +9598,19 @@ class FastingProgramService {
         break;
     }
 
-    // 3. Ajuster la fréquence en fonction du taux de suivi (adherenceRate)
+    // 3. Ajuster la frÃ©quence en fonction du taux de suivi (adherenceRate)
     int adjustedFastsPerWeek = baseFastsPerWeek;
     if (adherenceRate < 0.5) {
-      // Si l'utilisateur a du mal à suivre
+      // Si l'utilisateur a du mal Ã  suivre
       adjustedFastsPerWeek = (baseFastsPerWeek - 1).clamp(1, 7);
       // On retire le plan le plus difficile pour ce cycle
       if (allowedPlans.length > 1) allowedPlans.removeLast();
     } else if (adherenceRate > 0.85 && random.nextBool()) {
-      // Si l'utilisateur suit très bien
+      // Si l'utilisateur suit trÃ¨s bien
       adjustedFastsPerWeek = (baseFastsPerWeek + 1).clamp(1, 7);
     }
 
-    // 4. Générer les entrées pour le mois
+    // 4. GÃ©nÃ©rer les entrÃ©es pour le mois
     for (int day = 1; day <= daysInMonth; day++) {
       if (random.nextInt(7) < adjustedFastsPerWeek) {
         final date = DateTime(now.year, now.month, day);
@@ -9410,7 +9626,7 @@ class FastingProgramService {
       }
     }
 
-    // Pour inciter au passage VIP, on ajoute un jeûne "premium" par mois si non-VIP
+    // Pour inciter au passage VIP, on ajoute un jeÃ»ne "premium" par mois si non-VIP
     if (!isVip && entries.length < daysInMonth) {
       final premiumPlan = predefinedFastingPlans.firstWhereOrNull(
         (p) => p.isPremium,
@@ -9440,7 +9656,7 @@ class FastingProgramService {
   }
 }
 
-/// Enum pour les jours de la semaine (pour la lisibilité)
+/// Enum pour les jours de la semaine (pour la lisibilitÃ©)
 class DayOfWeek {
   static const int monday = 1;
   static const int tuesday = 2;
@@ -9452,7 +9668,7 @@ class DayOfWeek {
 }
 
 // =============================================================================
-// CLASSE FastingTab ENTIÈREMENT RÉÉCRITE
+// CLASSE FastingTab ENTIÃˆREMENT RÃ‰Ã‰CRITE
 // =============================================================================
 
 class FastingTab extends StatefulWidget {
@@ -9480,7 +9696,7 @@ class FastingTab extends StatefulWidget {
 }
 
 class _FastingTabState extends State<FastingTab> {
-  // --- State pour le timer de jeûne actif ---
+  // --- State pour le timer de jeÃ»ne actif ---
   Timer? _timer;
   bool _isFastingActive = false;
   DateTime? _fastStartTime;
@@ -9503,9 +9719,11 @@ class _FastingTabState extends State<FastingTab> {
   @override
   void didUpdateWidget(covariant FastingTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Si l'objectif change, on régénère tous les programmes futurs
-    if (oldWidget.currentGoals.weightGoalType != widget.currentGoals.weightGoalType ||
-        oldWidget.currentGoals.targetWeight != widget.currentGoals.targetWeight) {
+    // Si l'objectif change, on rÃ©gÃ©nÃ¨re tous les programmes futurs
+    if (oldWidget.currentGoals.weightGoalType !=
+            widget.currentGoals.weightGoalType ||
+        oldWidget.currentGoals.targetWeight !=
+            widget.currentGoals.targetWeight) {
       _regenerateAllPrograms();
     }
   }
@@ -9513,13 +9731,16 @@ class _FastingTabState extends State<FastingTab> {
   Future<void> _regenerateAllPrograms() async {
     if (!mounted) return;
     setState(() => _isLoadingProgram = true);
-    // Supprimer les programmes existants et régénérer sur 3 mois
-    await _generateProgramsForUpcomingMonths(numMonths: 3, forceRegenerate: true);
+    // Supprimer les programmes existants et rÃ©gÃ©nÃ©rer sur 3 mois
+    await _generateProgramsForUpcomingMonths(
+      numMonths: 3,
+      forceRegenerate: true,
+    );
     await _loadOrGenerateProgramForCurrentMonth();
     if (mounted) setState(() => _isLoadingProgram = false);
   }
 
-  /// Génère les programmes pour les N prochains mois (sans écraser si déjà existants).
+  /// GÃ©nÃ¨re les programmes pour les N prochains mois (sans Ã©craser si dÃ©jÃ  existants).
   Future<void> _generateProgramsForUpcomingMonths({
     int numMonths = 3,
     bool forceRegenerate = false,
@@ -9538,12 +9759,13 @@ class _FastingTabState extends State<FastingTab> {
       final monthId = DateFormat('yyyy-MM').format(targetMonth);
 
       try {
-        final doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.firestoreService.userId)
-            .collection('fastingPrograms')
-            .doc(monthId)
-            .get();
+        final doc =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(widget.firestoreService.userId)
+                .collection('fastingPrograms')
+                .doc(monthId)
+                .get();
 
         if (!doc.exists || forceRegenerate) {
           final newProgram = programService.generateProgramForMonth(
@@ -9558,7 +9780,7 @@ class _FastingTabState extends State<FastingTab> {
               .set(newProgram.toFirestore());
         }
       } catch (e) {
-        print("Erreur génération mois $monthId: $e");
+        print("Erreur gÃ©nÃ©ration mois $monthId: $e");
       }
     }
   }
@@ -9579,13 +9801,14 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   // =======================================================================
-  // GESTION DU PROGRAMME MENSUEL (MODIFIÉ)
+  // GESTION DU PROGRAMME MENSUEL (MODIFIÃ‰)
   // =======================================================================
 
-  /// NOUVEAU: Calcule le taux de suivi des jours passés ce mois-ci.
+  /// NOUVEAU: Calcule le taux de suivi des jours passÃ©s ce mois-ci.
   double _calculateAdherenceRate() {
-    if (_currentMonthProgram == null)
-      return 1.0; // Taux par défaut pour un nouveau programme
+    if (_currentMonthProgram == null) {
+      return 1.0; // Taux par dÃ©faut pour un nouveau programme
+    }
 
     final today = DateTime(
       DateTime.now().year,
@@ -9597,8 +9820,9 @@ class _FastingTabState extends State<FastingTab> {
             .where((e) => e.date.isBefore(today))
             .toList();
 
-    if (pastEntries.isEmpty)
-      return 1.0; // Pas encore de jour passé, on ne pénalise pas
+    if (pastEntries.isEmpty) {
+      return 1.0; // Pas encore de jour passÃ©, on ne pÃ©nalise pas
+    }
 
     final successfulEntries =
         pastEntries
@@ -9652,9 +9876,10 @@ class _FastingTabState extends State<FastingTab> {
       }
       _updatePastProgramEntries();
     } catch (e) {
-      print("Erreur lors du chargement/génération du programme de jeûne: $e");
+      print("Erreur lors du chargement/gÃ©nÃ©ration du programme de jeÃ»ne: $e");
     }
   }
+
   Future<void> _updatePastProgramEntries() async {
     if (_currentMonthProgram == null || !mounted) return;
 
@@ -9675,7 +9900,7 @@ class _FastingTabState extends State<FastingTab> {
 
     if (needsUpdate) {
       setState(() {
-        /* Met à jour l'UI avec le statut 'skipped' */
+        /* Met Ã  jour l'UI avec le statut 'skipped' */
       });
       if (widget.firestoreService.userId != null) {
         final monthId = DateFormat('yyyy-MM').format(_focusedDay);
@@ -9690,7 +9915,7 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   // =======================================================================
-  // GESTION DU JEÛNE ACTIF (TIMER)
+  // GESTION DU JEÃ›NE ACTIF (TIMER)
   // =======================================================================
 
   Future<void> _loadActiveFastingStateFromPrefs() async {
@@ -9763,10 +9988,10 @@ class _FastingTabState extends State<FastingTab> {
       _startTimer();
     });
     _saveActiveFastingStateToPrefs();
-    ScaffoldMessenger.of(context).showSnackBar(
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Jeûne de ${_formatSessionDuration(targetDuration)} démarré !',
+          'JeÃ»ne de ${_formatSessionDuration(targetDuration)} dÃ©marrÃ© !',
         ),
         backgroundColor: Colors.green,
       ),
@@ -9784,7 +10009,7 @@ class _FastingTabState extends State<FastingTab> {
         targetDuration: _targetDurationForActiveFast,
         notes:
             wasCancelled
-                ? 'Session annulée'
+                ? 'Session annulÃ©e'
                 : 'Plan: ${_activePlanId ?? "Ad-hoc"}',
       );
       widget.addFastingSession(session);
@@ -9841,7 +10066,7 @@ class _FastingTabState extends State<FastingTab> {
     if (mounted) setState(() {});
   }
 
-  /// Ajoute un jeûne ad-hoc à la date donnée dans le programme.
+  /// Ajoute un jeÃ»ne ad-hoc Ã  la date donnÃ©e dans le programme.
   Future<void> _addFastingToProgram(FastingPlan plan, DateTime date) async {
     if (_currentMonthProgram == null) return;
 
@@ -9868,10 +10093,10 @@ class _FastingTabState extends State<FastingTab> {
     }
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Jeûne ${plan.name} ajouté le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
+            'JeÃ»ne ${plan.name} ajoutÃ© le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
           ),
           backgroundColor: Colors.teal,
         ),
@@ -9887,7 +10112,7 @@ class _FastingTabState extends State<FastingTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mon Programme de Jeûne'),
+        title: const Text('Mon Programme de JeÃ»ne'),
         automaticallyImplyLeading: false,
         actions: [
           if (_isFastingActive)
@@ -9989,7 +10214,7 @@ class _FastingTabState extends State<FastingTab> {
               shape: BoxShape.circle,
             ),
           ),
-          headerStyle: HeaderStyle(
+          headerStyle: const HeaderStyle(
             formatButtonVisible: false,
             titleCentered: true,
           ),
@@ -10036,7 +10261,7 @@ class _FastingTabState extends State<FastingTab> {
               ),
               if (plan.isPremium && !widget.isPremiumUser)
                 Chip(
-                  label: const Text('Fonctionnalité Premium'),
+                  label: const Text('FonctionnalitÃ© Premium'),
                   avatar: const Icon(Icons.workspace_premium, size: 18),
                   backgroundColor: Colors.amber.shade100,
                 ),
@@ -10048,23 +10273,23 @@ class _FastingTabState extends State<FastingTab> {
               ),
             ] else
               Text(
-                "Aucun jeûne n'est prévu pour ce jour.",
+                "Aucun jeÃ»ne n'est prÃ©vu pour ce jour.",
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             const SizedBox(height: 20),
             if (!_isFastingActive && !isPastDay && !isFutureDay)
               ElevatedButton.icon(
-                // ================== DÉBUT DE LA MODIFICATION ==================
+                // ================== DÃ‰BUT DE LA MODIFICATION ==================
                 onPressed: () async {
                   // Rendre la fonction async
-                  // Si un jeûne est déjà planifié, on le démarre directement.
+                  // Si un jeÃ»ne est dÃ©jÃ  planifiÃ©, on le dÃ©marre directement.
                   if (entryForSelectedDay != null && plan != null) {
                     if (plan.isPremium && !widget.isPremiumUser) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
-                            "Ce plan de jeûne est réservé aux membres Premium.",
+                            "Ce plan de jeÃ»ne est rÃ©servÃ© aux membres Premium.",
                           ),
                           backgroundColor: Colors.amber,
                         ),
@@ -10076,7 +10301,7 @@ class _FastingTabState extends State<FastingTab> {
                       planId: entryForSelectedDay.planId,
                     );
                   }
-                  // SINON (cas qui nous intéresse), on ouvre l'écran de sélection.
+                  // SINON (cas qui nous intÃ©resse), on ouvre l'Ã©cran de sÃ©lection.
                   else {
                     final selectedPlan = await Navigator.push<FastingPlan>(
                       context,
@@ -10090,7 +10315,7 @@ class _FastingTabState extends State<FastingTab> {
                       ),
                     );
 
-                    // Si l'utilisateur a choisi un plan et est revenu, on démarre le jeûne.
+                    // Si l'utilisateur a choisi un plan et est revenu, on dÃ©marre le jeÃ»ne.
                     if (selectedPlan != null && mounted) {
                       _showStartFastDialog(
                         targetDuration: selectedPlan.fastingDuration,
@@ -10107,13 +10332,13 @@ class _FastingTabState extends State<FastingTab> {
                 ),
                 label: Text(
                   entryForSelectedDay != null
-                      ? 'Démarrer le Jeûne Planifié'
-                      : 'Démarrer un Jeûne',
+                      ? 'DÃ©marrer le JeÃ»ne PlanifiÃ©'
+                      : 'DÃ©marrer un JeÃ»ne',
                 ),
               )
             else if (_isFastingActive)
               const Text(
-                "Un jeûne est déjà en cours...",
+                "Un jeÃ»ne est dÃ©jÃ  en cours...",
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
@@ -10123,18 +10348,29 @@ class _FastingTabState extends State<FastingTab> {
               Column(
                 children: [
                   if (entryForSelectedDay != null) ...[
-                    const Icon(Icons.lock_clock, color: Colors.blueGrey, size: 36),
+                    const Icon(
+                      Icons.lock_clock,
+                      color: Colors.blueGrey,
+                      size: 36,
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      "Ce jeûne est prévu dans le futur.\nVous pourrez le démarrer le jour J.",
+                      "Ce jeÃ»ne est prÃ©vu dans le futur.\nVous pourrez le dÃ©marrer le jour J.",
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontStyle: FontStyle.italic, color: Colors.blueGrey.shade600),
+                      style: TextStyle(
+                        fontStyle: FontStyle.italic,
+                        color: Colors.blueGrey.shade600,
+                      ),
                     ),
                   ] else ...[
-                    const Icon(Icons.calendar_month, color: Colors.teal, size: 36),
+                    const Icon(
+                      Icons.calendar_month,
+                      color: Colors.teal,
+                      size: 36,
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      "Aucun jeûne planifié pour ce jour.",
+                      "Aucun jeÃ»ne planifiÃ© pour ce jour.",
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
@@ -10143,44 +10379,48 @@ class _FastingTabState extends State<FastingTab> {
                       onPressed: () async {
                         final confirmed = await showDialog<bool>(
                           context: context,
-                          builder: (ctx) => AlertDialog(
-                            title: const Text('⚠️ Ajouter un jeûne'),
-                            content: Text(
-                              'Vous êtes sur le point d\'ajouter un jeûne à votre programme le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay)}.\n\nAssurez-vous d\'être en bonne santé et de vous hydrater suffisamment.',
-                            ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(ctx, false),
-                                child: const Text('Annuler'),
-                              ),
-                              ElevatedButton(
-                                onPressed: () => Navigator.pop(ctx, true),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.teal,
-                                  foregroundColor: Colors.white,
+                          builder:
+                              (ctx) => AlertDialog(
+                                title: const Text('âš ï¸ Ajouter un jeÃ»ne'),
+                                content: Text(
+                                  'Vous Ãªtes sur le point d\'ajouter un jeÃ»ne Ã  votre programme le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay)}.\n\nAssurez-vous d\'Ãªtre en bonne santÃ© et de vous hydrater suffisamment.',
                                 ),
-                                child: const Text('Continuer'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: const Text('Annuler'),
+                                  ),
+                                  ElevatedButton(
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.teal,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                    child: const Text('Continuer'),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
                         );
                         if (confirmed == true && mounted) {
-                          final selectedPlan = await Navigator.push<FastingPlan>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => FastingPlanSelectionScreen(
-                                isPremiumUser: widget.isPremiumUser,
-                                recommendedGoal: widget.currentGoals.weightGoalType,
-                              ),
-                            ),
-                          );
+                          final selectedPlan =
+                              await Navigator.push<FastingPlan>(
+                                context,
+                                MaterialPageRoute(
+                                  builder:
+                                      (context) => FastingPlanSelectionScreen(
+                                        isPremiumUser: widget.isPremiumUser,
+                                        recommendedGoal:
+                                            widget.currentGoals.weightGoalType,
+                                      ),
+                                ),
+                              );
                           if (selectedPlan != null && mounted) {
                             _addFastingToProgram(selectedPlan, _selectedDay);
                           }
                         }
                       },
                       icon: const Icon(Icons.add_alarm),
-                      label: const Text('Ajouter un jeûne à ce jour'),
+                      label: const Text('Ajouter un jeÃ»ne Ã  ce jour'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.teal,
                         foregroundColor: Colors.white,
@@ -10191,7 +10431,7 @@ class _FastingTabState extends State<FastingTab> {
               )
             else if (isPastDay)
               const Text(
-                "Cette date est passée.",
+                "Cette date est passÃ©e.",
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
@@ -10241,7 +10481,7 @@ class _FastingTabState extends State<FastingTab> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'Temps écoulé',
+                          'Temps Ã©coulÃ©',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 8),
@@ -10268,11 +10508,57 @@ class _FastingTabState extends State<FastingTab> {
                 ],
               ),
             ),
+            if (_elapsedTime.inHours >= 24)
+              Container(
+                margin: const EdgeInsets.only(top: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.shade200),
+                ),
+                child: Column(
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.warning_amber_rounded, color: Colors.red),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            "Jeûne prolongé (>24h). Écoutez votre corps.",
+                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.red.shade600,
+                        foregroundColor: Colors.white,
+                        minimumSize: const Size(double.infinity, 45),
+                      ),
+                      onPressed: () {
+                        _stopFast(saveSession: true, wasCancelled: true);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Jeûne rompu. Réalimentez-vous doucement (bouillon d'os, légumes cuits)."),
+                            backgroundColor: Colors.orange,
+                            duration: Duration(seconds: 6),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.favorite),
+                      label: const Text("Je ne me sens pas bien (Arrêter)"),
+                    ),
+                  ],
+                ),
+              ),
             const Divider(height: 32),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Début: ${DateFormat('HH:mm').format(_fastStartTime!)}'),
+                Text('DÃ©but: ${DateFormat('HH:mm').format(_fastStartTime!)}'),
                 Text('Fin: ${DateFormat('HH:mm').format(fastEndTime)}'),
               ],
             ),
@@ -10302,11 +10588,11 @@ class _FastingTabState extends State<FastingTab> {
                     ),
                   ),
                   subtitle: Text(
-                    isActive ? stage.description : 'Étape à venir...',
+                    isActive ? stage.description : 'Ã‰tape Ã  venir...',
                   ),
                 ),
               );
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -10322,7 +10608,7 @@ class _FastingTabState extends State<FastingTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Historique des Jeûnes',
+          'Historique des JeÃ»nes',
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 8),
@@ -10344,10 +10630,10 @@ class _FastingTabState extends State<FastingTab> {
                   color: targetReached ? Colors.green : Colors.orange,
                 ),
                 title: Text(
-                  'Jeûne de ${_formatSessionDuration(session.duration)}',
+                  'JeÃ»ne de ${_formatSessionDuration(session.duration)}',
                 ),
                 subtitle: Text(
-                  'Terminé le ${DateFormat('d MMM yyyy à HH:mm', 'fr_FR').format(session.endTime)}',
+                  'TerminÃ© le ${DateFormat('d MMM yyyy Ã  HH:mm', 'fr_FR').format(session.endTime)}',
                 ),
                 trailing: IconButton(
                   icon: const Icon(
@@ -10381,7 +10667,7 @@ class _FastingTabState extends State<FastingTab> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Configurer et Démarrer le Jeûne'),
+              title: const Text('Configurer et DÃ©marrer le JeÃ»ne'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -10389,7 +10675,7 @@ class _FastingTabState extends State<FastingTab> {
                   Text("Objectif: ${_formatSessionDuration(targetDuration)}"),
                   const SizedBox(height: 16),
                   ListTile(
-                    title: const Text("Heure de début"),
+                    title: const Text("Heure de dÃ©but"),
                     subtitle: Text(
                       DateFormat('HH:mm').format(selectedStartTime),
                       style: Theme.of(context).textTheme.titleLarge,
@@ -10418,7 +10704,7 @@ class _FastingTabState extends State<FastingTab> {
                     },
                   ),
                   ListTile(
-                    title: const Text("Heure de fin (estimée)"),
+                    title: const Text("Heure de fin (estimÃ©e)"),
                     subtitle: Text(
                       DateFormat('HH:mm').format(calculatedEndTime),
                       style: Theme.of(context).textTheme.titleLarge,
@@ -10440,7 +10726,7 @@ class _FastingTabState extends State<FastingTab> {
                       planId: planId,
                     );
                   },
-                  child: const Text('Démarrer'),
+                  child: const Text('DÃ©marrer'),
                 ),
               ],
             );
@@ -10455,9 +10741,9 @@ class _FastingTabState extends State<FastingTab> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Terminer le jeûne ?'),
+            title: const Text('Terminer le jeÃ»ne ?'),
             content: const Text(
-              'Voulez-vous terminer et enregistrer votre session de jeûne actuelle ?',
+              'Voulez-vous terminer et enregistrer votre session de jeÃ»ne actuelle ?',
             ),
             actions: [
               TextButton(
@@ -10489,15 +10775,15 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   Color _getLevelColor(String level) {
-    if (level.contains('Débutant')) return Colors.green.shade600;
-    if (level.contains('Intermédiaire')) return Colors.amber.shade700;
-    if (level.contains('Avancé')) return Colors.red.shade600;
+    if (level.contains('DÃ©butant')) return Colors.green.shade600;
+    if (level.contains('IntermÃ©diaire')) return Colors.amber.shade700;
+    if (level.contains('AvancÃ©')) return Colors.red.shade600;
     if (level.contains('Expert')) return Colors.purple.shade600;
     return Colors.grey;
   }
 }
 
-// NEW: FastingPlanSelectionScreen (pas nécessaire de l'ajouter si vous ne l'appelez pas, mais c'est une bonne pratique)
+// NEW: FastingPlanSelectionScreen (pas nÃ©cessaire de l'ajouter si vous ne l'appelez pas, mais c'est une bonne pratique)
 class FastingPlanSelectionScreen extends StatefulWidget {
   final bool isPremiumUser;
   final String recommendedGoal;
@@ -10518,16 +10804,16 @@ class _FastingPlanSelectionScreenState
   FastingPlan? _selectedPlan;
 
   Color _getLevelColor(String level) {
-    if (level.contains('Débutant')) return Colors.green.shade600;
-    if (level.contains('Intermédiaire')) return Colors.amber.shade700;
-    if (level.contains('Avancé')) return Colors.red.shade600;
+    if (level.contains('DÃ©butant')) return Colors.green.shade600;
+    if (level.contains('IntermÃ©diaire')) return Colors.amber.shade700;
+    if (level.contains('AvancÃ©')) return Colors.red.shade600;
     if (level.contains('Expert')) return Colors.purple.shade600;
     return Colors.grey;
   }
 
   @override
   Widget build(BuildContext context) {
-    // Sépare les plans recommandés des autres pour une meilleure UX
+    // SÃ©pare les plans recommandÃ©s des autres pour une meilleure UX
     final recommendedPlans =
         predefinedFastingPlans
             .where((p) => p.goals.contains(widget.recommendedGoal))
@@ -10538,13 +10824,13 @@ class _FastingPlanSelectionScreenState
             .toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Choisir un Plan de Jeûne')),
+      appBar: AppBar(title: const Text('Choisir un Plan de JeÃ»ne')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           if (recommendedPlans.isNotEmpty) ...[
             Text(
-              'Recommandé pour vous',
+              'RecommandÃ© pour vous',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 color: Theme.of(context).primaryColor,
               ),
@@ -10566,7 +10852,7 @@ class _FastingPlanSelectionScreenState
           _selectedPlan != null
               ? FloatingActionButton.extended(
                 onPressed: () => Navigator.pop(context, _selectedPlan),
-                label: Text('Démarrer : ${_selectedPlan!.name}'),
+                label: Text('DÃ©marrer : ${_selectedPlan!.name}'),
                 icon: const Icon(Icons.play_arrow),
               )
               : null,
@@ -10640,10 +10926,10 @@ class _FastingPlanSelectionScreenState
         onTap:
             isLocked
                 ? () {
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        "Ce programme est réservé aux utilisateurs Premium.",
+                        "Ce programme est rÃ©servÃ© aux utilisateurs Premium.",
                       ),
                       backgroundColor: Colors.amber,
                     ),
@@ -10687,7 +10973,7 @@ class _ScanHistoryTabState extends State<ScanHistoryTab> {
                 child: Padding(
                   padding: EdgeInsets.all(20.0),
                   child: Text(
-                    "Aucun produit scanné pour le moment. Scannez un produit pour voir son historique ici !",
+                    "Aucun produit scannÃ© pour le moment. Scannez un produit pour voir son historique ici !",
                     style: TextStyle(fontSize: 18, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
@@ -10725,7 +11011,7 @@ class _ScanHistoryTabState extends State<ScanHistoryTab> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        'Scanné le ${DateFormat('d/M/y HH:mm', 'fr_FR').format(product.scannedDate)}',
+                        'ScannÃ© le ${DateFormat('d/M/y HH:mm', 'fr_FR').format(product.scannedDate)}',
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -10860,6 +11146,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _ageController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
+  final TextEditingController _bodyFatController = TextEditingController();
   final TextEditingController _heightController = TextEditingController();
   final TextEditingController _targetWeightController = TextEditingController();
   final TextEditingController _targetCaloriesController =
@@ -10882,12 +11169,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _lastNameController.text = _editableProfile.lastName ?? '';
     _ageController.text = _editableProfile.age.toString();
     _weightController.text = _editableProfile.weight.toStringAsFixed(1);
+    _bodyFatController.text = _editableProfile.bodyFatPercentage?.toStringAsFixed(1) ?? '';
     _heightController.text = _editableProfile.height.toStringAsFixed(1);
     _targetWeightController.text = _editableGoals.targetWeight.toStringAsFixed(
       1,
     );
 
-    // Si l'utilisateur est en sous-poids, on force l'objectif à 'maintenir' ou 'prendre du poids' pour éviter les erreurs
+    // Si l'utilisateur est en sous-poids, on force l'objectif Ã  'maintenir' ou 'prendre du poids' pour Ã©viter les erreurs
     if (_editableProfile.isUnderweight &&
         _editableGoals.weightGoalType == 'lose') {
       _editableGoals.weightGoalType = 'maintain';
@@ -10902,6 +11190,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _lastNameController.dispose();
     _ageController.dispose();
     _weightController.dispose();
+    _bodyFatController.dispose();
     _heightController.dispose();
     _targetMuscleGainController.dispose();
     _targetWeightController.dispose();
@@ -10918,6 +11207,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     final weight =
         double.tryParse(_weightController.text) ?? _editableProfile.weight;
+    final bodyFatPercentage =
+        double.tryParse(_bodyFatController.text) ?? _editableProfile.bodyFatPercentage;
     final height =
         double.tryParse(_heightController.text) ?? _editableProfile.height;
     final age = int.tryParse(_ageController.text) ?? _editableProfile.age;
@@ -11034,7 +11325,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             endDate: DateTime.now(),
             status:
                 GoalStatus
-                    .failed, // L'ancien objectif est marqué comme échoué car modifié
+                    .failed, // L'ancien objectif est marquÃ© comme Ã©chouÃ© car modifiÃ©
           );
         }
 
@@ -11057,7 +11348,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       widget.onProfileUpdated();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text("Erreur lors de la sauvegarde: $e"),
           backgroundColor: Colors.red,
@@ -11106,7 +11397,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       title: 'Informations Personnelles',
                       children: [
                         _GoalTextField(
-                          label: 'Prénom',
+                          label: 'PrÃ©nom',
                           controller: _firstNameController,
                           onSaved:
                               (v) =>
@@ -11124,17 +11415,34 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   ),
                         ),
                         _GoalTextField(
-                          label: 'Âge',
+                          label: 'Ã‚ge',
                           controller: _ageController,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => _updateGoalsFromProfile(),
                         ),
-                        _GoalTextField(
+                                _GoalTextField(
                           label: 'Poids (kg)',
                           controller: _weightController,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => _updateGoalsFromProfile(),
                         ),
+                        _GoalTextField(
+                          label: 'Pourcentage de masse grasse (% - optionnel)',
+                          controller: _bodyFatController,
+                          keyboardType: TextInputType.number,
+                          onChanged: (_) => _updateGoalsFromProfile(),
+                        ),
+                        if (_editableProfile.leanBodyMass != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Text(
+                              'Masse maigre estimée : ${_editableProfile.leanBodyMass!.toStringAsFixed(1)} kg',
+                              style: const TextStyle(
+                                color: Colors.teal,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
                         _GoalTextField(
                           label: 'Taille (cm)',
                           controller: _heightController,
@@ -11149,7 +11457,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       title: 'Habitudes Alimentaires',
                       children: [
                         DropdownButtonFormField<int>(
-                          value: _editableProfile.mealsPerDay,
+                          initialValue: _editableProfile.mealsPerDay,
                           decoration: const InputDecoration(
                             labelText: 'Combien de repas par jour ?',
                           ),
@@ -11173,23 +11481,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           },
                         ),
                         DropdownButtonFormField<String>(
-                          value: _editableProfile.dietQuality,
+                          initialValue: _editableProfile.dietQuality,
                           decoration: const InputDecoration(
-                            labelText: 'Qualité globale de votre alimentation',
+                            labelText: 'QualitÃ© globale de votre alimentation',
                           ),
                           items: const [
                             DropdownMenuItem(
                               value: 'saine',
-                              child: Text('Plutôt saine et équilibrée'),
+                              child: Text('PlutÃ´t saine et Ã©quilibrÃ©e'),
                             ),
                             DropdownMenuItem(
                               value: 'moyenne',
-                              child: Text('Variable, avec des excès'),
+                              child: Text('Variable, avec des excÃ¨s'),
                             ),
                             DropdownMenuItem(
                               value: 'peu_saine',
                               child: Text(
-                                'Souvent peu équilibrée (transformés, etc.)',
+                                'Souvent peu Ã©quilibrÃ©e (transformÃ©s, etc.)',
                               ),
                             ),
                           ],
@@ -11204,23 +11512,38 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           },
                         ),
                         SwitchListTile(
-                          title: const Text('Je m\'entraîne en salle de sport'),
+                          title: const Text('Je m\'entraÃ®ne en salle de sport'),
                           value: _editableProfile.gymMode,
-                          onChanged: (v) => setState(
-                            () => _editableProfile = _editableProfile.copyWith(gymMode: v),
-                          ),
+                          onChanged:
+                              (v) => setState(
+                                () =>
+                                    _editableProfile = _editableProfile
+                                        .copyWith(gymMode: v),
+                              ),
                         ),
                         if (!_editableProfile.gymMode)
                           _buildMultiSelectChip(
-                            label: 'Mon matériel à la maison',
-                            options: ['Haltères', 'Bande de résistance', 'Barre de traction', 'Kettlebell', 'Tapis de sol', 'Banc'],
+                            label: 'Mon matÃ©riel Ã  la maison',
+                            options: [
+                              'HaltÃ¨res',
+                              'Bande de rÃ©sistance',
+                              'Barre de traction',
+                              'Kettlebell',
+                              'Tapis de sol',
+                              'Banc',
+                            ],
                             selected: _editableProfile.availableEquipment,
-                            onSelectionChanged: (selected) => setState(
-                              () => _editableProfile = _editableProfile.copyWith(availableEquipment: selected),
-                            ),
+                            onSelectionChanged:
+                                (selected) => setState(
+                                  () =>
+                                      _editableProfile = _editableProfile
+                                          .copyWith(
+                                            availableEquipment: selected,
+                                          ),
+                                ),
                           ),
                         SwitchListTile(
-                          title: const Text('Tendance à manger trop sucré ?'),
+                          title: const Text('Tendance Ã  manger trop sucrÃ© ?'),
                           value: _editableProfile.tendsToEatSugary,
                           onChanged:
                               (v) => setState(
@@ -11230,7 +11553,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               ),
                         ),
                         SwitchListTile(
-                          title: const Text('Tendance à manger trop salé ?'),
+                          title: const Text('Tendance Ã  manger trop salÃ© ?'),
                           value: _editableProfile.tendsToEatSalty,
                           onChanged:
                               (v) => setState(
@@ -11243,7 +11566,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                     const SizedBox(height: 32),
                     Text(
-                      'Vos objectifs de santé',
+                      'Vos objectifs de santÃ©',
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
@@ -11255,7 +11578,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       content: Column(
                         children: [
                           DropdownButtonFormField<String>(
-                            value: _editableGoals.weightGoalType,
+                            initialValue: _editableGoals.weightGoalType,
                             decoration: InputDecoration(
                               labelText: 'Type d\'objectif',
                               border: OutlineInputBorder(
@@ -11267,7 +11590,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             // CORRECTION: Utilisation de la liste dynamique
                             items: goalTypeItems,
                             onChanged: (value) {
-                              // Si la valeur est nulle (ce qui peut arriver si l'option est retirée), on ne fait rien
+                              // Si la valeur est nulle (ce qui peut arriver si l'option est retirÃ©e), on ne fait rien
                               if (value == null) return;
                               setState(
                                 () => _editableGoals.weightGoalType = value,
@@ -11282,21 +11605,23 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             keyboardType: TextInputType.number,
                             // CORRECTION: Ajout d'un validateur intelligent
                             validator: (value) {
-                              if (value == null || value.isEmpty)
+                              if (value == null || value.isEmpty) {
                                 return 'Champ requis.';
+                              }
                               final targetWeight = double.tryParse(value);
-                              if (targetWeight == null)
+                              if (targetWeight == null) {
                                 return 'Valeur invalide.';
+                              }
 
                               // Suggestion si la cible est trop ambitieuse ou potentiellement dangereuse
                               if (_editableGoals.weightGoalType == 'lose' &&
                                   targetWeight < minNormalWeight) {
-                                return 'Attention, cet objectif vous mettrait en sous-poids. Visez plutôt ${minNormalWeight.toStringAsFixed(1)} kg.';
+                                return 'Attention, cet objectif vous mettrait en sous-poids. Visez plutÃ´t ${minNormalWeight.toStringAsFixed(1)} kg.';
                               }
                               if (_editableGoals.weightGoalType == 'gain' &&
                                   targetWeight > maxNormalWeight * 1.2) {
                                 // 20% au dessus du poids max normal
-                                return 'Cet objectif est très ambitieux. Progressez par paliers.';
+                                return 'Cet objectif est trÃ¨s ambitieux. Progressez par paliers.';
                               }
                               return null;
                             },
@@ -11317,7 +11642,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ? const Card(
                           child: ListTile(
                             title: Text(
-                              "Aucun objectif défini pour le moment.",
+                              "Aucun objectif dÃ©fini pour le moment.",
                             ),
                           ),
                         )
@@ -11359,7 +11684,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       color: statusColor,
                                     ),
                                     title: Text(
-                                      '${goal.goalType.capitalize()} de ${goal.startWeight}kg à ${goal.targetWeight}kg',
+                                      '${goal.goalType.capitalize()} de ${goal.startWeight}kg Ã  ${goal.targetWeight}kg',
                                     ),
                                     subtitle: Text(
                                       'Du ${DateFormat('dd/MM/yy').format(goal.startDate)} au ${goal.endDate != null ? DateFormat('dd/MM/yy').format(goal.endDate!) : '...'}',
@@ -11389,7 +11714,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // Fonctions d'aide à la construction de l'UI (pas de changement ici)
+  // Fonctions d'aide Ã  la construction de l'UI (pas de changement ici)
   Widget _buildProfileInputCard({
     required String title,
     required List<Widget> children,
@@ -11524,7 +11849,7 @@ class _GoalsTabState extends State<GoalsTab> {
   late DailyGoal _editableGoals;
   double _currentWeight = 0.0;
 
-  TextEditingController _currentWeightController = TextEditingController();
+  final TextEditingController _currentWeightController = TextEditingController();
 
   @override
   void initState() {
@@ -11548,10 +11873,10 @@ class _GoalsTabState extends State<GoalsTab> {
       final dailyCalls =
           await widget.usageTrackerService.getDeepSeekApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimité !",
+              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
             ),
             backgroundColor: Colors.red,
           ),
@@ -11564,15 +11889,15 @@ class _GoalsTabState extends State<GoalsTab> {
       context: context,
       barrierDismissible: false,
       builder:
-          (ctx) => AlertDialog(
-            title: const Text('Analyse IA en cours...'),
+          (ctx) => const AlertDialog(
+            title: Text('Analyse IA en cours...'),
             content: Row(
-              children: const [
+              children: [
                 CircularProgressIndicator(),
                 SizedBox(width: 20),
                 Expanded(
                   child: Text(
-                    "L'IA analyse vos données pour déduire le meilleur objectif.",
+                    "L'IA analyse vos donnÃ©es pour dÃ©duire le meilleur objectif.",
                   ),
                 ),
               ],
@@ -11582,16 +11907,16 @@ class _GoalsTabState extends State<GoalsTab> {
 
     final String prompt = '''
     Tu es un expert en nutrition et sport. Un utilisateur veut fixer un objectif.
-    Voici ses données :
-    - Poids actuel : ${_currentWeight} kg
-    - IMC (estimé, selon le poids et taille standard moyenne) ou informations fournies: veut une recommandation d'objectif.
+    Voici ses donnÃ©es :
+    - Poids actuel : $_currentWeight kg
+    - IMC (estimÃ©, selon le poids et taille standard moyenne) ou informations fournies: veut une recommandation d'objectif.
     
-    Détermine le meilleur objectif nutritionnel.
-    Aussi, calcule des macros cibles (protéines, glucides, lipides) adaptées.
+    DÃ©termine le meilleur objectif nutritionnel.
+    Aussi, calcule des macros cibles (protÃ©ines, glucides, lipides) adaptÃ©es.
     
-    Renvoie le résultat en JSON STRICT avec:
+    Renvoie le rÃ©sultat en JSON STRICT avec:
     - "goal": "lose", "gain" ou "maintain"
-    - "target_weight": (double) un poids cible réaliste et sain
+    - "target_weight": (double) un poids cible rÃ©aliste et sain
     - "target_calories": (int)
     - "target_proteins": (double)
     - "target_carbs": (double)
@@ -11610,30 +11935,30 @@ class _GoalsTabState extends State<GoalsTab> {
       if (result != null) {
         await widget.usageTrackerService.incrementDeepSeekApiCall();
 
-          setState(() {
-            _editableGoals.weightGoalType = result['goal'] ?? 'maintain';
-            _editableGoals.targetWeight =
-                (result['target_weight'] as num?)?.toDouble() ?? _currentWeight;
-            _editableGoals.targetCalories = result['target_calories'] ?? 2000;
-            _editableGoals.targetProteins =
-                (result['target_proteins'] as num?)?.toDouble() ?? 100.0;
-            _editableGoals.targetCarbs =
-                (result['target_carbs'] as num?)?.toDouble() ?? 200.0;
-            _editableGoals.targetFats =
-                (result['target_fats'] as num?)?.toDouble() ?? 70.0;
-            _currentWeightController.text = _editableGoals.targetWeight
-                .toStringAsFixed(1);
-          });
+        setState(() {
+          _editableGoals.weightGoalType = result['goal'] ?? 'maintain';
+          _editableGoals.targetWeight =
+              (result['target_weight'] as num?)?.toDouble() ?? _currentWeight;
+          _editableGoals.targetCalories = result['target_calories'] ?? 2000;
+          _editableGoals.targetProteins =
+              (result['target_proteins'] as num?)?.toDouble() ?? 100.0;
+          _editableGoals.targetCarbs =
+              (result['target_carbs'] as num?)?.toDouble() ?? 200.0;
+          _editableGoals.targetFats =
+              (result['target_fats'] as num?)?.toDouble() ?? 70.0;
+          _currentWeightController.text = _editableGoals.targetWeight
+              .toStringAsFixed(1);
+        });
 
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("IA: ${result['message']}"),
-              backgroundColor: Colors.blue.shade700,
-              duration: const Duration(seconds: 7),
-            ),
-          );
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("IA: ${result['message']}"),
+            backgroundColor: Colors.blue.shade700,
+            duration: const Duration(seconds: 7),
+          ),
+        );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Erreur de l'API IA."),
             backgroundColor: Colors.red,
@@ -11642,7 +11967,7 @@ class _GoalsTabState extends State<GoalsTab> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
       );
     }
@@ -11661,7 +11986,7 @@ class _GoalsTabState extends State<GoalsTab> {
           padding: const EdgeInsets.all(16.0),
           children: [
             Text(
-              'Définissez vos objectifs',
+              'DÃ©finissez vos objectifs',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
@@ -11693,7 +12018,7 @@ class _GoalsTabState extends State<GoalsTab> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
-                    value: _editableGoals.weightGoalType,
+                    initialValue: _editableGoals.weightGoalType,
                     decoration: InputDecoration(
                       labelText: 'Type d\'objectif',
                       border: OutlineInputBorder(
@@ -11728,8 +12053,8 @@ class _GoalsTabState extends State<GoalsTab> {
                     icon: const Icon(Icons.lightbulb_outline),
                     label: Text(
                       widget.isPremiumUser
-                          ? 'Déduire l\'objectif avec l\'IA'
-                          : 'Déduire l\'objectif avec l\'IA (5/jour)',
+                          ? 'DÃ©duire l\'objectif avec l\'IA'
+                          : 'DÃ©duire l\'objectif avec l\'IA (5/jour)',
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.amber.shade700,
@@ -11757,7 +12082,7 @@ class _GoalsTabState extends State<GoalsTab> {
                   ),
                   const SizedBox(height: 12),
                   _GoalTextField(
-                    label: 'Protéines (g)',
+                    label: 'ProtÃ©ines (g)',
                     initialValue: _editableGoals.targetProteins.toStringAsFixed(
                       0,
                     ),
@@ -11855,902 +12180,6 @@ class _GoalsTabState extends State<GoalsTab> {
   }
 }
 
-class MenuPlanningTab extends StatefulWidget {
-  final List<MealPlanEntry> mealPlans;
-  final Function(MealPlanEntry) addMealPlanEntry;
-  final Function(String) deleteMealPlanEntry;
-  final Function(FoodEntry) addFoodEntryToTracker;
-  final DailyGoal currentGoals;
-  final bool isPremiumUser;
-  final UsageTrackerService usageTrackerService;
-  final UserProfile userProfile;
-
-  const MenuPlanningTab({
-    super.key,
-    required this.mealPlans,
-    required this.addMealPlanEntry,
-    required this.deleteMealPlanEntry,
-    required this.addFoodEntryToTracker,
-    required this.currentGoals,
-    required this.isPremiumUser,
-    required this.usageTrackerService,
-    required this.userProfile,
-  });
-
-  @override
-  State<MenuPlanningTab> createState() => _MenuPlanningTabState();
-}
-
-class _MenuPlanningTabState extends State<MenuPlanningTab> {
-  DateTime _focusedDay = DateTime.now();
-  DateTime? _selectedDay;
-  final TextEditingController _promptController = TextEditingController();
-  final TextEditingController _searchApiController = TextEditingController();
-
-  bool _generateShoppingList = false;
-  String? _fridgeContent;
-  String _recipeDifficulty = 'Normal'; // Simple, Normal, Difficile
-
-  List<dynamic> _dailySuggestions = [];
-  List<dynamic> _apiSearchResults = [];
-  bool _isLoadingApi = false;
-  bool _isSearchingApi = false;
-
-  List<String> _savedShoppingList = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedDay = _focusedDay;
-    _fetchDailySuggestions();
-    _loadShoppingList();
-  }
-
-  @override
-  void dispose() {
-    _promptController.dispose();
-    _searchApiController.dispose();
-    super.dispose();
-  }
-
-  // --- SCRAPING IMAGE BING ---
-  Future<String?> _fetchImageUrl(String query) async {
-    try {
-      final url = Uri.parse('https://www.bing.com/images/search?q=${Uri.encodeComponent(query + " recette plat")}&form=HDRSC3&first=1');
-      final response = await http.get(url, headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-      });
-      if (response.statusCode == 200) {
-        final RegExp regex = RegExp(r'murl&quot;:&quot;(https?://[^&]+)&quot;');
-        final match = regex.firstMatch(response.body);
-        if (match != null) {
-          return match.group(1);
-        }
-      }
-    } catch (e) {
-      debugPrint("Erreur scraping image: $e");
-    }
-    return null;
-  }
-
-  // --- LISTE DE COURSES ---
-  Future<void> _loadShoppingList() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _savedShoppingList = prefs.getStringList('shopping_list_${widget.userProfile.id}') ?? [];
-    });
-  }
-
-  Future<void> _saveShoppingList(List<String> list) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList('shopping_list_${widget.userProfile.id}', list);
-    setState(() => _savedShoppingList = list);
-  }
-
-  // --- SUGGESTIONS THEMEALDB (Entrée, Plat, Dessert) ---
-  Future<void> _fetchDailySuggestions() async {
-    if (!mounted) return;
-    setState(() => _isLoadingApi = true);
-
-    try {
-      final categories = ['Starter', 'Beef', 'Dessert']; // Entrée, Plat, Dessert
-      List<dynamic> tempSuggestions = [];
-
-      for (String cat in categories) {
-        final response = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/filter.php?c=$cat'));
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          if (data['meals'] != null && (data['meals'] as List).isNotEmpty) {
-            final meals = data['meals'] as List;
-            final randomMeal = meals[Random().nextInt(meals.length)];
-            
-            // Fetch details to get instructions
-            final detailResp = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/lookup.php?i=${randomMeal["idMeal"]}'));
-            if (detailResp.statusCode == 200) {
-              final detailData = json.decode(detailResp.body);
-              tempSuggestions.add(detailData['meals'][0]);
-            }
-          }
-        }
-      }
-
-      if (mounted) {
-        setState(() {
-          _dailySuggestions = tempSuggestions;
-          _isLoadingApi = false;
-        });
-      }
-    } catch (e) {
-      debugPrint("Erreur API MealDB: $e");
-      if (mounted) setState(() => _isLoadingApi = false);
-    }
-  }
-
-  Future<void> _searchApiRecipes(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _isSearchingApi = false;
-        _apiSearchResults = [];
-      });
-      return;
-    }
-    setState(() {
-      _isLoadingApi = true;
-      _isSearchingApi = true;
-    });
-
-    try {
-      final response = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/search.php?s=$query'));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            _apiSearchResults = (data['meals'] as List?) ?? [];
-            _isLoadingApi = false;
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint("Erreur recherche API: $e");
-      if (mounted) setState(() => _isLoadingApi = false);
-    }
-  }
-
-  Future<void> _addApiMealToCalendar(dynamic mealApiData) async {
-    DateTime selectedDate = _selectedDay ?? DateTime.now();
-    MealType selectedType = MealType.dinner;
-
-    await showDialog(
-      context: context,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text("Planifier : ${mealApiData['strMeal']}"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    title: const Text("Date"),
-                    subtitle: Text(DateFormat('dd/MM/yyyy').format(selectedDate)),
-                    trailing: const Icon(Icons.calendar_today),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: context,
-                        initialDate: selectedDate,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                      );
-                      if (picked != null) {
-                        setDialogState(() => selectedDate = picked);
-                      }
-                    },
-                  ),
-                  DropdownButtonFormField<MealType>(
-                    value: selectedType,
-                    decoration: const InputDecoration(labelText: 'Type de repas'),
-                    items: [MealType.lunch, MealType.dinner, MealType.breakfast, MealType.snack]
-                        .map((t) => DropdownMenuItem(value: t, child: Text(t.toCapitalizedString())))
-                        .toList(),
-                    onChanged: (v) => setDialogState(() => selectedType = v!),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-                ElevatedButton(
-                  onPressed: () {
-                    String desc = "${mealApiData['strCategory'] ?? ''} - ${mealApiData['strArea'] ?? ''}";
-                    widget.addMealPlanEntry(
-                      MealPlanEntry(
-                        date: selectedDate,
-                        mealType: selectedType,
-                        mealName: mealApiData['strMeal'],
-                        description: desc,
-                        imageUrl: mealApiData['strMealThumb'],
-                        recipeInstructions: mealApiData['strInstructions'],
-                      ),
-                    );
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${mealApiData['strMeal']} ajouté !"), backgroundColor: Colors.green));
-                  },
-                  child: const Text('Ajouter'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-  }
-
-  // --- MENU GRATUIT (THEMEALDB + USDA) : 0% IA ---
-  Future<void> _generateFreeMealDBMenu() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 20),
-            Expanded(child: Text("Récupération des recettes et calcul des calories USDA...")),
-          ],
-        ),
-      ),
-    );
-
-    try {
-      final cats = ['Starter', 'Beef', 'Dessert'];
-      List<Map<String, dynamic>> rawMeals = [];
-      
-      // 1. TheMealDB (0% IA)
-      for (String c in cats) {
-        final r1 = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/filter.php?c=$c'));
-        if (r1.statusCode == 200) {
-          final d1 = json.decode(r1.body);
-          if (d1['meals'] != null) {
-            final mList = d1['meals'] as List;
-            final rMeal = mList[Random().nextInt(mList.length)];
-            final r2 = await http.get(Uri.parse('https://www.themealdb.com/api/json/v1/1/lookup.php?i=${rMeal["idMeal"]}'));
-            final d2 = json.decode(r2.body);
-            rawMeals.add(d2['meals'][0]);
-          }
-        }
-      }
-
-      // 2. USDA (Calcul des calories)
-      for (int i = 0; i < rawMeals.length; i++) {
-        var m = rawMeals[i];
-        List<String> extractedIngredients = [];
-        double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
-
-        for (int j = 1; j <= 20; j++) {
-          String? measure = m['strMeasure$j'];
-          String? ingredient = m['strIngredient$j'];
-          
-          if (ingredient != null && ingredient.trim().isNotEmpty) {
-            extractedIngredients.add("${measure?.trim() ?? ''} ${ingredient.trim()}".trim());
-            // Calcul via l'API du gouvernement
-            final macros = await SL.usdaNlp.getMacrosFromUSDA(ingredient.trim(), measure ?? "");
-            totalCal += macros['calories']!;
-            totalPro += macros['proteins']!;
-            totalCarb += macros['carbs']!;
-            totalFat += macros['fats']!;
-          }
-        }
-
-        MealType mType = (i == 1) ? MealType.dinner : MealType.snack;
-
-        widget.addMealPlanEntry(MealPlanEntry(
-          date: _selectedDay ?? DateTime.now(),
-          mealType: mType,
-          mealName: m['strMeal'] ?? "Repas",
-          description: m['strCategory'] ?? "TheMealDB",
-          recipeInstructions: m['strInstructions'],
-          prepTime: 20,
-          utensils: ["Standard"],
-          ingredients: extractedIngredients,
-          imageUrl: m['strMealThumb'],
-          estimatedCalories: totalCal.toInt(),
-          estimatedProteins: totalPro,
-          estimatedCarbs: totalCarb,
-          estimatedFats: totalFat,
-        ));
-      }
-      
-      if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Menu TheMealDB généré !"), backgroundColor: Colors.green));
-
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red));
-      }
-    }
-  }
-
-  // --- MENU PREMIUM (IA DEEPSEEK + USDA) : 0% TheMealDB ---
-  Future<void> _generateMenuWithIA({bool isWeekly = false}) async {
-    if (!widget.isPremiumUser) {
-      return _generateFreeMealDBMenu();
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => const AlertDialog(
-        content: Row(children: [CircularProgressIndicator(), SizedBox(width: 20), Expanded(child: Text("L'IA crée vos recettes, l'USDA calcule les calories..."))]),
-      ),
-    );
-
-    // Note : On ne demande plus les calories à l'IA !
-    final String prompt = '''
-    Génère un plan de repas pour ${isWeekly ? "7 JOURS (du Lundi au Dimanche)" : "1 JOUR"}.
-    PROFIL: Objectif ${widget.currentGoals.weightGoalType}.
-    
-    Format JSON strict :
-    {
-      "meals": [
-        {
-          "day_offset": 0, 
-          "mealType": "dinner",
-          "mealName": "Titre plat",
-          "description": "Courte",
-          "prepTime": 15,
-          "utensils": ["Poêle"],
-          "ingredients": [
-            {"name": "poulet", "measure": "100g"},
-            {"name": "riz", "measure": "50g"}
-          ],
-          "recipe_instructions": "Étape 1. Étape 2."
-        }
-      ]
-    }
-    ''';
-
-    try {
-      final result = await SL.aiService.fetchJSONResponse(prompt: prompt, temperature: 0.6);
-      if (mounted) Navigator.pop(context);
-
-      if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
-        final List<dynamic> mealsRaw = result['meals'] ?? [];
-        
-        DateTime baseDate = _selectedDay!;
-        if (isWeekly) baseDate = baseDate.subtract(Duration(days: baseDate.weekday - 1));
-
-        for (var m in mealsRaw) {
-          int dayOffset = (m['day_offset'] as num?)?.toInt() ?? 0;
-          DateTime mealDate = isWeekly ? baseDate.add(Duration(days: dayOffset)) : baseDate;
-
-          // Variables pour le calcul USDA
-          List<dynamic> rawIngs = m['ingredients'] ?? [];
-          List<String> combinedIngredients = [];
-          double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
-
-          // L'USDA prend le relais de l'IA pour calculer les calories exactes
-          for (var ing in rawIngs) {
-            String name = ing['name'] ?? '';
-            String measure = ing['measure'] ?? '';
-            combinedIngredients.add("$measure $name".trim());
-            
-            final macros = await SL.usdaNlp.getMacrosFromUSDA(name, measure);
-            totalCal += macros['calories']!;
-            totalPro += macros['proteins']!;
-            totalCarb += macros['carbs']!;
-            totalFat += macros['fats']!;
-          }
-
-          widget.addMealPlanEntry(MealPlanEntry(
-            date: mealDate,
-            mealType: MealType.values.firstWhere((e) => e.name == m['mealType'], orElse: () => MealType.unknown),
-            mealName: m['mealName'],
-            description: m['description'],
-            recipeInstructions: m['recipe_instructions'],
-            prepTime: (m['prepTime'] as num?)?.toInt(),
-            utensils: (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
-            ingredients: combinedIngredients,
-            imageUrl: null, 
-            estimatedCalories: totalCal.toInt(),
-            estimatedProteins: totalPro,
-            estimatedCarbs: totalCarb,
-            estimatedFats: totalFat,
-          ));
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red));
-      }
-    }
-  }
-
-  void _showShoppingListDialog() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Ma Liste de Courses'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: _savedShoppingList.isEmpty
-              ? const Text("Votre liste est vide.")
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: _savedShoppingList.length,
-                  itemBuilder: (context, index) => ListTile(
-                    leading: const Icon(Icons.check_box_outline_blank),
-                    title: Text(_savedShoppingList[index]),
-                  ),
-                ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fermer')),
-        ],
-      ),
-    );
-  }
-
-  void _showRecipeDialog(MealPlanEntry meal) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, controller) => ListView(
-          controller: controller,
-          padding: const EdgeInsets.all(20),
-          children: [
-            if (meal.imageUrl != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.network(meal.imageUrl!, height: 250, fit: BoxFit.cover, errorBuilder: (c,e,s) => const SizedBox()),
-              ),
-            const SizedBox(height: 16),
-            Text(meal.mealName, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildMacroBadge("${meal.estimatedCalories} kcal", Colors.orange),
-                _buildMacroBadge("${meal.estimatedProteins}g Pro", Colors.blue),
-                _buildMacroBadge("${meal.estimatedCarbs}g Glu", Colors.green),
-                _buildMacroBadge("${meal.estimatedFats}g Lip", Colors.purple),
-              ],
-            ),
-            const Divider(height: 32, thickness: 1),
-            Text("Préparation", style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            Text(
-              meal.recipeInstructions ?? "Aucune instruction générée.",
-              style: const TextStyle(fontSize: 16, height: 1.5),
-            ),
-            const SizedBox(height: 30),
-            ElevatedButton.icon(
-              onPressed: () => Navigator.pop(ctx),
-              icon: const Icon(Icons.check),
-              label: const Text("Fermer"),
-            )
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMacroBadge(String text, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(color: color.withOpacity(0.15), borderRadius: BorderRadius.circular(12)),
-      child: Text(text, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 13)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final mealsForSelectedDay = _selectedDay != null ? widget.mealPlans.where((plan) => isSameDay(plan.date, _selectedDay)).toList() : [];
-
-    // Groupement par type de repas
-    final Map<MealType, List<MealPlanEntry>> groupedMeals = {
-      MealType.breakfast: [],
-      MealType.lunch: [],
-      MealType.snack: [],
-      MealType.dinner: [],
-    };
-    for (var m in mealsForSelectedDay) {
-      if (groupedMeals.containsKey(m.mealType)) groupedMeals[m.mealType]!.add(m);
-    }
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Menus & Recettes'), automaticallyImplyLeading: false),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          if (_savedShoppingList.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 16.0),
-              child: ElevatedButton.icon(
-                onPressed: _showShoppingListDialog,
-                icon: const Icon(Icons.shopping_basket),
-                label: const Text("Voir ma dernière liste de courses"),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade100, foregroundColor: Colors.teal.shade900),
-              ),
-            ),
-          
-          // Suggestions TheMealDB Complètes
-          Text("Suggestion du Jour (TheMealDB)", style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 190,
-            child: _isLoadingApi 
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _dailySuggestions.length,
-                    itemBuilder: (context, index) {
-                      final meal = _dailySuggestions[index];
-                      return Container(
-                        width: 160,
-                        margin: const EdgeInsets.only(right: 12),
-                        child: Card(
-                          clipBehavior: Clip.antiAlias,
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(context, MaterialPageRoute(builder: (ctx) => RecipeDetailPage(mealData: meal, onAdd: () => _addApiMealToCalendar(meal))));
-                            },
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(child: Image.network(meal['strMealThumb'], width: double.infinity, fit: BoxFit.cover)),
-                                Padding(
-                                  padding: const EdgeInsets.all(8.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(meal['strMeal'], maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      Text(index == 0 ? "Entrée" : index == 1 ? "Plat" : "Dessert", style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-          const Divider(height: 32),
-
-          // Générateur IA
-          Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text("Générer un menu IA", style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: _recipeDifficulty,
-                    decoration: const InputDecoration(labelText: "Difficulté des recettes"),
-                    items: ["Simple", "Normal", "Difficile"].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                    onChanged: (v) => setState(() => _recipeDifficulty = v!),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _promptController,
-                    decoration: const InputDecoration(labelText: 'Préférences (ex: pas de viande)'),
-                  ),
-                  if (widget.isPremiumUser)
-                    CheckboxListTile(
-                      title: const Text("Créer une liste de courses"),
-                      value: _generateShoppingList,
-                      onChanged: (v) => setState(() => _generateShoppingList = v ?? false),
-                    ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          onPressed: () => _generateMenuWithIA(isWeekly: false),
-                          icon: const Icon(Icons.restaurant),
-                          label: Text(widget.isPremiumUser ? "Menu du Jour" : "Menu TheMealDB (Gratuit)"),
-                        ),
-                      ),
-                      if (widget.isPremiumUser) ...[
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed: () => _generateMenuWithIA(isWeekly: true),
-                            icon: const Icon(Icons.date_range),
-                            label: const Text("Semaine"),
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.teal.shade600),
-                          ),
-                        ),
-                      ]
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          _buildCalendar(),
-          const SizedBox(height: 24),
-          
-          Text('Plan pour le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay!)}', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 16),
-          
-          if (mealsForSelectedDay.isEmpty)
-            const Center(child: Text("Aucun repas planifié pour ce jour.", style: TextStyle(color: Colors.grey)))
-          else ...[
-            _buildMealSection("Petit-déjeuner", groupedMeals[MealType.breakfast]!),
-            _buildMealSection("Déjeuner", groupedMeals[MealType.lunch]!),
-            _buildMealSection("Collation", groupedMeals[MealType.snack]!),
-            _buildMealSection("Dîner", groupedMeals[MealType.dinner]!),
-          ]
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMealSection(String title, List<MealPlanEntry> meals) {
-    if (meals.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8.0),
-          child: Text(title, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Theme.of(context).primaryColor)),
-        ),
-        ...meals.map((meal) => _buildMealPlanEntryCard(meal)),
-        const SizedBox(height: 16),
-      ],
-    );
-  }
-
-  Widget _buildCalendar() {
-    return Card(
-      elevation: 4.0,
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: TableCalendar(
-          locale: 'fr_FR',
-          firstDay: DateTime.utc(2020, 1, 1),
-          lastDay: DateTime.utc(2030, 12, 31),
-          focusedDay: _focusedDay,
-          selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-          onDaySelected: (selectedDay, focusedDay) => setState(() { _selectedDay = selectedDay; _focusedDay = focusedDay; }),
-          headerStyle: const HeaderStyle(formatButtonVisible: false, titleCentered: true),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMealPlanEntryCard(MealPlanEntry meal) {
-    return Card(
-      elevation: 2,
-      child: ExpansionTile(
-        leading: meal.imageUrl != null
-            ? ClipRRect(borderRadius: BorderRadius.circular(8), child: Image.network(meal.imageUrl!, width: 50, height: 50, fit: BoxFit.cover, errorBuilder: (c,e,s) => const Icon(Icons.fastfood)))
-            : const Icon(Icons.restaurant),
-        title: Text(meal.mealName, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('${meal.estimatedCalories} kcal'),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(meal.description, style: const TextStyle(color: Colors.grey)),
-                const SizedBox(height: 10),
-                Text('Macros: ${meal.estimatedProteins.toStringAsFixed(0)}P / ${meal.estimatedCarbs.toStringAsFixed(0)}G / ${meal.estimatedFats.toStringAsFixed(0)}L', style: const TextStyle(color: Colors.blueGrey, fontWeight: FontWeight.w500)),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    if (meal.recipeInstructions != null && meal.recipeInstructions!.isNotEmpty)
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.menu_book),
-                        label: const Text('Voir la recette'),
-                        onPressed: () => _showRecipeDialog(meal),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade100, foregroundColor: Colors.orange.shade900),
-                      ),
-                    Row(
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.add_circle, color: Colors.green),
-                          tooltip: "Ajouter au suivi",
-                          onPressed: () {
-                            widget.addFoodEntryToTracker(meal.toFoodEntry());
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${meal.mealName} ajouté !")));
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.redAccent),
-                          onPressed: () => widget.deleteMealPlanEntry(meal.id),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-}
-
-}
-class RecipeDetailPage extends StatelessWidget {
-  final Map<String, dynamic> mealData;
-  final VoidCallback onAdd;
-
-  const RecipeDetailPage({
-    super.key,
-    required this.mealData,
-    required this.onAdd,
-  });
-
-  // Fonction pour extraire et coupler Ingrédients + Mesures
-  List<String> _getIngredients() {
-    List<String> ingredients = [];
-    for (int i = 1; i <= 20; i++) {
-      final ingredient = mealData['strIngredient$i'];
-      final measure = mealData['strMeasure$i'];
-
-      if (ingredient != null && ingredient.toString().trim().isNotEmpty) {
-        String entry = ingredient;
-        if (measure != null && measure.toString().trim().isNotEmpty) {
-          entry = "$entry ($measure)";
-        }
-        ingredients.add(entry);
-      }
-    }
-    return ingredients;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ingredients = _getIngredients();
-
-    return Scaffold(
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            expandedHeight: 300.0,
-            pinned: true,
-            flexibleSpace: FlexibleSpaceBar(
-              title: Text(
-                mealData['strMeal'] ?? 'Recette',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 10)],
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              background:
-                  mealData['strMealThumb'] != null
-                      ? Image.network(
-                        mealData['strMealThumb'],
-                        fit: BoxFit.cover,
-                        errorBuilder:
-                            (c, e, s) => Container(color: Colors.grey),
-                      )
-                      : Container(color: Colors.teal),
-            ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.share),
-                onPressed: () {
-                  // Logique de partage si nécessaire
-                },
-              ),
-            ],
-          ),
-          SliverList(
-            delegate: SliverChildListDelegate([
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Catégorie et Origine
-                    Row(
-                      children: [
-                        if (mealData['strCategory'] != null)
-                          Chip(
-                            avatar: const Icon(Icons.category, size: 18),
-                            label: Text(mealData['strCategory']),
-                            backgroundColor: Colors.orange.shade100,
-                          ),
-                        const SizedBox(width: 10),
-                        if (mealData['strArea'] != null)
-                          Chip(
-                            avatar: const Icon(Icons.public, size: 18),
-                            label: Text(mealData['strArea']),
-                            backgroundColor: Colors.blue.shade100,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Section Ingrédients
-                    Text(
-                      "Ingrédients",
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Column(
-                        children:
-                            ingredients.map((ing) {
-                              return ListTile(
-                                leading: const Icon(
-                                  Icons.circle,
-                                  size: 8,
-                                  color: Colors.teal,
-                                ),
-                                title: Text(ing),
-                                dense: true,
-                              );
-                            }).toList(),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Section Instructions
-                    Text(
-                      "Instructions",
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      mealData['strInstructions'] ??
-                          "Aucune instruction disponible.",
-                      style: const TextStyle(fontSize: 16, height: 1.6),
-                      textAlign: TextAlign.justify,
-                    ),
-                    const SizedBox(height: 80), // Espace pour le FAB
-                  ],
-                ),
-              ),
-            ]),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          onAdd(); // Appel de la fonction d'ajout existante
-          // Optionnel: fermer la page après ajout
-          // Navigator.pop(context);
-        },
-        label: const Text("Planifier ce repas"),
-        icon: const Icon(Icons.calendar_month),
-        backgroundColor: Colors.teal,
-        foregroundColor: Colors.white,
-      ),
-    );
-  }
-}
-
 class SubscriptionPage extends StatefulWidget {
   final bool isPremiumUser;
   final SubscriptionService subscriptionService;
@@ -12808,7 +12237,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
           children: [
             Card(
               elevation: 4,
-              color: widget.isPremiumUser ? Colors.amber.shade50 : Colors.blueGrey.shade50,
+              color:
+                  widget.isPremiumUser
+                      ? Colors.amber.shade50
+                      : Colors.blueGrey.shade50,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
@@ -12817,28 +12249,43 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     Row(
                       children: [
                         Icon(
-                          widget.isPremiumUser ? Icons.workspace_premium : Icons.person_outline,
-                          color: widget.isPremiumUser ? Colors.amber.shade800 : Colors.blueGrey.shade700,
+                          widget.isPremiumUser
+                              ? Icons.workspace_premium
+                              : Icons.person_outline,
+                          color:
+                              widget.isPremiumUser
+                                  ? Colors.amber.shade800
+                                  : Colors.blueGrey.shade700,
                           size: 36,
                         ),
                         const SizedBox(width: 16),
                         Text(
-                          widget.isPremiumUser ? 'Premium Actif' : 'Version Gratuite',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: widget.isPremiumUser ? Colors.amber.shade800 : Colors.blueGrey.shade700,
-                              ),
+                          widget.isPremiumUser
+                              ? 'Premium Actif'
+                              : 'Version Gratuite',
+                          style: Theme.of(
+                            context,
+                          ).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color:
+                                widget.isPremiumUser
+                                    ? Colors.amber.shade800
+                                    : Colors.blueGrey.shade700,
+                          ),
                         ),
                       ],
                     ),
                     const Divider(height: 24),
                     Text(
                       widget.isPremiumUser
-                          ? 'Félicitations ! Vous bénéficiez de toutes les fonctionnalités illimitées.'
-                          : 'Vous utilisez la version gratuite.\nBonus de série en cours : $streak jours (+${limitIA - 5} appels IA) !',
+                          ? 'FÃ©licitations ! Vous bÃ©nÃ©ficiez de toutes les fonctionnalitÃ©s illimitÃ©es.'
+                          : 'Vous utilisez la version gratuite.\nBonus de sÃ©rie en cours : $streak jours (+${limitIA - 5} appels IA) !',
                       style: TextStyle(
                         fontSize: 16,
-                        color: widget.isPremiumUser ? Colors.amber.shade700 : Colors.blueGrey.shade600,
+                        color:
+                            widget.isPremiumUser
+                                ? Colors.amber.shade700
+                                : Colors.blueGrey.shade600,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -12851,7 +12298,10 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.amber.shade600,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 12),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 30,
+                              vertical: 12,
+                            ),
                           ),
                         ),
                       ),
@@ -12861,7 +12311,9 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                           onPressed: () => _showPremiumDowngradeDialog(context),
                           icon: const Icon(Icons.cancel_outlined),
                           label: const Text('Annuler l\'abonnement'),
-                          style: TextButton.styleFrom(foregroundColor: Colors.red.shade600),
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.red.shade600,
+                          ),
                         ),
                       ),
                   ],
@@ -12870,74 +12322,84 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ),
             const SizedBox(height: 32),
             Text(
-              'Vos Crédits & Limites (Aujourd\'hui)',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              'Vos CrÃ©dits & Limites (Aujourd\'hui)',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             _buildFeatureCard(
               context,
               'Appels IA (Recettes, Bilan, Menus)',
-              widget.isPremiumUser ? 'Illimité' : 'Utilisés : $_apiCallsUsed / $limitIA',
+              widget.isPremiumUser
+                  ? 'IllimitÃ©'
+                  : 'UtilisÃ©s : $_apiCallsUsed / $limitIA',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
               'Analyse IA Photo',
-              widget.isPremiumUser ? 'Illimité' : 'Utilisés : $_photoCallsUsed / ${UserLimits.freePhotoAnalysisPerDay}',
+              widget.isPremiumUser
+                  ? 'IllimitÃ©'
+                  : 'UtilisÃ©s : $_photoCallsUsed / ${UserLimits.freePhotoAnalysisPerDay}',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
               'Scan IA des produits',
-              widget.isPremiumUser ? 'Illimité' : 'Utilisés : $_scanCallsUsed / ${UserLimits.freeScanAnalysisPerDay}',
+              widget.isPremiumUser
+                  ? 'IllimitÃ©'
+                  : 'UtilisÃ©s : $_scanCallsUsed / ${UserLimits.freeScanAnalysisPerDay}',
               widget.isPremiumUser,
             ),
             const SizedBox(height: 32),
             Text(
-              'Fonctionnalités de l\'abonnement',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              'FonctionnalitÃ©s de l\'abonnement',
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             _buildFeatureCard(
               context,
-              'Analyses photo IA illimitées',
-              'Free: 1 analyse / jour\nPremium: Illimité',
+              'Analyses photo IA illimitÃ©es',
+              'Free: 1 analyse / jour\nPremium: IllimitÃ©',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Scans IA de produits illimités et plus rapides',
-              'Free: 5 scans IA / jour\nPremium: Illimité & Parallèle',
+              'Scans IA de produits illimitÃ©s et plus rapides',
+              'Free: 5 scans IA / jour\nPremium: IllimitÃ© & ParallÃ¨le',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Appels API Modèle IA illimités',
-              'Free: 5 appels / jour + bonus série\nPremium: Illimité',
+              'Appels API ModÃ¨le IA illimitÃ©s',
+              'Free: 5 appels / jour + bonus sÃ©rie\nPremium: IllimitÃ©',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Historique étendu des données',
-              'Free: Données des 30 derniers jours\nPremium: Historique complet',
+              'Historique Ã©tendu des donnÃ©es',
+              'Free: DonnÃ©es des 30 derniers jours\nPremium: Historique complet',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Conseils IA personnalisés et proactifs',
+              'Conseils IA personnalisÃ©s et proactifs',
               'Free: Suggestions basiques\nPremium: Conseils approfondis (recettes, ajustements de plan)',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Planification de repas avancée et génération de menus hebdomadaires',
-              'Free: Menus du jour basiques\nPremium: Menus récurrents, listes de courses générées par l\'IA',
+              'Planification de repas avancÃ©e et gÃ©nÃ©ration de menus hebdomadaires',
+              'Free: Menus du jour basiques\nPremium: Menus rÃ©currents, listes de courses gÃ©nÃ©rÃ©es par l\'IA',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Programmes d\'entrainements et jeûne avancés',
-              'Free: Outils manuels simples\nPremium: Programmes IA (expert), jeûnes longs (>20h)',
+              'Programmes d\'entrainements et jeÃ»ne avancÃ©s',
+              'Free: Outils manuels simples\nPremium: Programmes IA (expert), jeÃ»nes longs (>20h)',
               widget.isPremiumUser,
             ),
           ],
@@ -12946,7 +12408,12 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     );
   }
 
-  Widget _buildFeatureCard(BuildContext context, String title, String description, bool isPremium) {
+  Widget _buildFeatureCard(
+    BuildContext context,
+    String title,
+    String description,
+    bool isPremium,
+  ) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8.0),
       elevation: 2,
@@ -12964,9 +12431,19 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 4),
-                  Text(description, style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade700)),
+                  Text(
+                    description,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -12979,41 +12456,51 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   void _showPremiumUpgradeDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Passer au Premium ?'),
-        content: const Text('Voulez-vous simuler l\'activation de l\'abonnement Premium ?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-          ElevatedButton(
-            onPressed: () async {
-              await widget.subscriptionService.setPremiumStatus(true);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Activer'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Passer au Premium ?'),
+            content: const Text(
+              'Voulez-vous simuler l\'activation de l\'abonnement Premium ?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Annuler'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await widget.subscriptionService.setPremiumStatus(true);
+                  Navigator.pop(ctx);
+                },
+                child: const Text('Activer'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 
   void _showPremiumDowngradeDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Annuler l\'abonnement ?'),
-        content: const Text('Voulez-vous simuler l\'annulation ?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Non')),
-          ElevatedButton(
-            onPressed: () async {
-              await widget.subscriptionService.setPremiumStatus(false);
-              Navigator.pop(ctx);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Oui, Annuler'),
+      builder:
+          (ctx) => AlertDialog(
+            title: const Text('Annuler l\'abonnement ?'),
+            content: const Text('Voulez-vous simuler l\'annulation ?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Non'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await widget.subscriptionService.setPremiumStatus(false);
+                  Navigator.pop(ctx);
+                },
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Oui, Annuler'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
   }
 }
@@ -13119,7 +12606,7 @@ class _GoalTextField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: TextFormField(
@@ -13129,7 +12616,7 @@ class _GoalTextField extends StatelessWidget {
           labelText: label,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           filled: true,
-          // Correction Mode Sombre : gris foncé en dark mode, gris très clair en light mode
+          // Correction Mode Sombre : gris foncÃ© en dark mode, gris trÃ¨s clair en light mode
           fillColor: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
         ),
         keyboardType: keyboardType,
@@ -13137,10 +12624,11 @@ class _GoalTextField extends StatelessWidget {
         onSaved: onSaved,
         readOnly: readOnly,
         maxLines: 1,
-        validator: validator ??
+        validator:
+            validator ??
             (value) {
               if (!readOnly && (value == null || value.isEmpty)) {
-                return 'Ce champ ne peut pas être vide.';
+                return 'Ce champ ne peut pas Ãªtre vide.';
               }
               if (keyboardType == TextInputType.number &&
                   (value != null && value.isNotEmpty) &&
@@ -13180,7 +12668,7 @@ class GlobalImpactCard extends StatelessWidget {
             ),
             Tooltip(
               message:
-                  "Cette note évalue l'impact global du produit par rapport à une alimentation durable.",
+                  "Cette note Ã©value l'impact global du produit par rapport Ã  une alimentation durable.",
               child: Icon(
                 Icons.info_outline,
                 size: 20,
@@ -13231,7 +12719,7 @@ class GlobalImpactCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Comment ce score est-il calculé ?",
+                  "Comment ce score est-il calculÃ© ?",
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -13274,14 +12762,14 @@ class LifecycleBreakdownCard extends StatelessWidget {
             ),
             const Tooltip(
               message:
-                  "Répartition de l'impact environnemental selon les données Agribalyse.",
+                  "RÃ©partition de l'impact environnemental selon les donnÃ©es Agribalyse.",
               child: Icon(Icons.info_outline, size: 20, color: Colors.blue),
             ),
           ],
         ),
         subtitle: const Padding(
           padding: EdgeInsets.only(top: 4.0),
-          child: Text("Cliquez pour voir le détail de l'impact"),
+          child: Text("Cliquez pour voir le dÃ©tail de l'impact"),
         ),
         children: [
           Padding(
@@ -13346,12 +12834,12 @@ class ProductStatusCard extends StatelessWidget {
       case 'vegan':
         icon = Icons.eco;
         color = Colors.green.shade700;
-        text = "Produit Végétalien (Vegan)";
+        text = "Produit VÃ©gÃ©talien (Vegan)";
         break;
       case 'vegetarian':
         icon = Icons.grass;
         color = Colors.lightGreen.shade800;
-        text = "Produit Végétarien";
+        text = "Produit VÃ©gÃ©tarien";
         break;
       case 'non-vegetarian':
         icon = Icons.kebab_dining;
@@ -13361,7 +12849,7 @@ class ProductStatusCard extends StatelessWidget {
       default:
         icon = Icons.help_outline;
         color = Colors.grey.shade700;
-        text = "Statut végétarien inconnu";
+        text = "Statut vÃ©gÃ©tarien inconnu";
     }
 
     return Card(
@@ -13408,8 +12896,8 @@ class AnalysisCard extends StatelessWidget {
         return Colors.green.shade700;
       case 'moyen':
         return Colors.orange.shade700;
-      case 'médiocre':
-      case 'à éviter':
+      case 'mÃ©diocre':
+      case 'Ã  Ã©viter':
         return Colors.red.shade700;
       default:
         return Theme.of(context).colorScheme.onSurface;
@@ -13495,7 +12983,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     isEstimated
-                        ? "Eco-score Produit (Estimé par IA)"
+                        ? "Eco-score Produit (EstimÃ© par IA)"
                         : "Eco-score Produit (Officiel)",
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -13503,7 +12991,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 if (isEstimated)
                   const Tooltip(
                     message:
-                        "Cette analyse est une estimation par IA car les données officielles ne sont pas disponibles.",
+                        "Cette analyse est une estimation par IA car les donnÃ©es officielles ne sont pas disponibles.",
                     child: Icon(
                       Icons.info_outline,
                       size: 20,
@@ -13532,7 +13020,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 subtitle: Text(
                   isEstimated
                       ? "Estimation par l'IA"
-                      : "Donnée officielle (Agribalyse)",
+                      : "DonnÃ©e officielle (Agribalyse)",
                 ),
               ),
               const SizedBox(height: 16),
@@ -13657,10 +13145,10 @@ class NutrimentDetailsCard extends StatelessWidget {
       text = 'Faible';
       color = Colors.green;
     } else if (value <= thresholds[key]![1]) {
-      text = 'Modéré';
+      text = 'ModÃ©rÃ©';
       color = Colors.orange;
     } else {
-      text = 'Élevé';
+      text = 'Ã‰levÃ©';
       color = Colors.red;
     }
 
@@ -13707,7 +13195,7 @@ class NutrimentDetailsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Repères Nutritionnels (pour 100g)",
+              "RepÃ¨res Nutritionnels (pour 100g)",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
@@ -13793,7 +13281,7 @@ class AdditivesCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    "Additifs (Données Officielles)",
+                    "Additifs (DonnÃ©es Officielles)",
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -13846,7 +13334,7 @@ class IngredientAnalysisCard extends StatelessWidget {
       text = 'Bon';
     } else if (healthScore >= 3) {
       color = Colors.orange;
-      text = 'Modéré';
+      text = 'ModÃ©rÃ©';
     } else {
       color = Colors.red;
       text = 'Mauvais';
@@ -13884,7 +13372,7 @@ class IngredientAnalysisCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Détail des Autres Ingrédients (par l'IA)",
+              "DÃ©tail des Autres IngrÃ©dients (par l'IA)",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
@@ -13899,7 +13387,7 @@ class IngredientAnalysisCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            ing['name'] as String? ?? 'Ingrédient',
+                            ing['name'] as String? ?? 'IngrÃ©dient',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
@@ -13913,7 +13401,7 @@ class IngredientAnalysisCard extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 4.0),
                         child: Text(
-                          "Catégorie: ${ing['category']}",
+                          "CatÃ©gorie: ${ing['category']}",
                           style: TextStyle(
                             fontStyle: FontStyle.italic,
                             color: Colors.grey.shade600,
@@ -13968,13 +13456,13 @@ class ComparisonProductCard extends StatelessWidget {
                 : const Icon(Icons.fastfood, size: 50, color: Colors.grey),
         title: Text(alternative['product_name'] ?? 'Nom inconnu'),
         subtitle: Text(
-          'Note Catégorie: ${alternative['category_score'].toStringAsFixed(1)}/10',
+          'Note CatÃ©gorie: ${alternative['category_score'].toStringAsFixed(1)}/10',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         trailing:
             nutriscoreGrade.isNotEmpty
                 ? Image.network(
-                  'https://static.openfoodfacts.org/images/attributes/nutriscore-${nutriscoreGrade}.png',
+                  'https://static.openfoodfacts.org/images/attributes/nutriscore-$nutriscoreGrade.png',
                   height: 30,
                   errorBuilder:
                       (c, e, s) => Text(nutriscoreGrade.toUpperCase()),
@@ -14029,10 +13517,11 @@ class _ScannerPageState extends State<ScannerPage> {
                 if (barcodeValue == null) return;
 
                 if (!_scannedCodes.contains(barcodeValue)) {
+                  HapticFeedback.mediumImpact();
                   setState(() {
                     _scannedCodes.add(barcodeValue);
                   });
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Code ajouté: $barcodeValue'),
                       duration: const Duration(seconds: 1),
@@ -14049,7 +13538,7 @@ class _ScannerPageState extends State<ScannerPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Codes scannés',
+                    'Codes scannÃ©s',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
@@ -14078,7 +13567,7 @@ class _ScannerPageState extends State<ScannerPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_scannedCodes.length} article(s) scanné(s). Appuyez sur Terminer lorsque vous avez terminé.',
+                    '${_scannedCodes.length} article(s) scannÃ©(s). Appuyez sur Terminer lorsque vous avez terminÃ©.',
                     style: const TextStyle(color: Colors.grey),
                   ),
                 ],
@@ -14102,8 +13591,7 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
   int _portions = 1;
   final List<FoodEntry> _ingredients = [];
 
-  int get totalKcal =>
-      _ingredients.fold(0, (sum, item) => sum + item.calories);
+  int get totalKcal => _ingredients.fold(0, (sum, item) => sum + item.calories);
   double get totalPro =>
       _ingredients.fold(0.0, (sum, item) => sum + item.proteins);
   double get totalCarbs =>
@@ -14115,7 +13603,7 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
     if (_recipeNameController.text.isEmpty || _ingredients.isEmpty) return;
 
     final recipePerPortion = FoodEntry(
-      name: '🍽️ ${_recipeNameController.text} (1 portion)',
+      name: 'ðŸ½ï¸ ${_recipeNameController.text} (1 portion)',
       calories: (totalKcal / _portions).round(),
       proteins: totalPro / _portions,
       carbs: totalCarbs / _portions,
@@ -14131,12 +13619,9 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Créer une Recette'),
+        title: const Text('CrÃ©er une Recette'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.save),
-            onPressed: _saveRecipe,
-          ),
+          IconButton(icon: const Icon(Icons.save), onPressed: _saveRecipe),
         ],
       ),
       body: Column(
@@ -14154,17 +13639,24 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Nombre de portions : ',
-                  style: TextStyle(fontSize: 16)),
+              const Text(
+                'Nombre de portions : ',
+                style: TextStyle(fontSize: 16),
+              ),
               IconButton(
                 icon: const Icon(Icons.remove),
-                onPressed: () => setState(() => _portions = _portions > 1 ? _portions - 1 : 1),
+                onPressed:
+                    () => setState(
+                      () => _portions = _portions > 1 ? _portions - 1 : 1,
+                    ),
               ),
-              Text('$_portions',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  )),
+              Text(
+                '$_portions',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               IconButton(
                 icon: const Icon(Icons.add),
                 onPressed: () => setState(() => _portions++),
@@ -14209,7 +13701,8 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
                   subtitle: Text('${ing.calories} kcal'),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => setState(() => _ingredients.removeAt(index)),
+                    onPressed:
+                        () => setState(() => _ingredients.removeAt(index)),
                   ),
                 );
               },
@@ -14219,39 +13712,63 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
               onPressed: () async {
-                // On simule une boîte de dialogue rapide pour ajouter un ingrédient
+                // On simule une boÃ®te de dialogue rapide pour ajouter un ingrÃ©dient
                 String nom = '';
                 int cal = 0;
                 await showDialog(
                   context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text("Ajouter un ingrédient"),
-                    content: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextField(onChanged: (v) => nom = v, decoration: const InputDecoration(labelText: "Nom")),
-                        TextField(onChanged: (v) => cal = int.tryParse(v) ?? 0, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: "Calories")),
-                      ],
-                    ),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Annuler")),
-                      ElevatedButton(
-                        onPressed: () {
-                          if (nom.isNotEmpty && cal > 0) {
-                            setState(() {
-                              _ingredients.add(FoodEntry(name: nom, calories: cal, proteins: 0, carbs: 0, fats: 0, timestamp: DateTime.now()));
-                            });
-                            Navigator.pop(ctx);
-                          }
-                        },
-                        child: const Text("Ajouter"),
-                      )
-                    ],
-                  ),
+                  builder:
+                      (ctx) => AlertDialog(
+                        title: const Text("Ajouter un ingrÃ©dient"),
+                        content: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextField(
+                              onChanged: (v) => nom = v,
+                              decoration: const InputDecoration(
+                                labelText: "Nom",
+                              ),
+                            ),
+                            TextField(
+                              onChanged: (v) => cal = int.tryParse(v) ?? 0,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: "Calories",
+                              ),
+                            ),
+                          ],
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text("Annuler"),
+                          ),
+                          ElevatedButton(
+                            onPressed: () {
+                              if (nom.isNotEmpty && cal > 0) {
+                                setState(() {
+                                  _ingredients.add(
+                                    FoodEntry(
+                                      name: nom,
+                                      calories: cal,
+                                      proteins: 0,
+                                      carbs: 0,
+                                      fats: 0,
+                                      timestamp: DateTime.now(),
+                                    ),
+                                  );
+                                });
+                                Navigator.pop(ctx);
+                              }
+                            },
+                            child: const Text("Ajouter"),
+                          ),
+                        ],
+                      ),
                 );
               },
               icon: const Icon(Icons.add),
-              label: const Text('Ajouter un ingrédient'),
+              label: const Text('Ajouter un ingrÃ©dient'),
             ),
           ),
         ],
@@ -14267,12 +13784,14 @@ class _MacroStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(
-        children: [
-          Text(value,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          Text(label, style: const TextStyle(color: Colors.grey)),
-        ],
-      );
+    children: [
+      Text(
+        value,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+      ),
+      Text(label, style: const TextStyle(color: Colors.grey)),
+    ],
+  );
 }
 
 class ScoreCircle extends StatelessWidget {

@@ -77,6 +77,12 @@ class UserProfile {
   String likedSports;
   String dislikedSports;
   double? bodyFatPercentage;
+
+  double? get leanBodyMass {
+    if (bodyFatPercentage == null) return null;
+    return weight * (1 - (bodyFatPercentage! / 100));
+  }
+
   List<String> availableEquipment;
   bool gymMode;
   List<GoalHistoryEntry> goalHistory;

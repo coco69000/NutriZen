@@ -46,7 +46,23 @@ class DeepSeekService {
           if (content.startsWith('```json')) {
             content = content.replaceAll('```json', '').replaceAll('```', '').trim();
           }
-          return json.decode(content) as Map<String, dynamic>?;
+          
+          content = content.replaceAll('\n', ' ').replaceAll('\r', '');
+
+          final decoded = json.decode(content);
+          if (decoded is List) {
+            // Cas où le modèle renvoie directement une liste au lieu d'un objet JSON.
+            // On le wrappe de manière heuristique. S'il contient des repas, on le met sous "meals".
+            if (decoded.isNotEmpty && decoded.first is Map && decoded.first.containsKey('mealName')) {
+              return {'meals': decoded};
+            }
+            if (decoded.isNotEmpty && decoded.first is Map && decoded.first.containsKey('day_index')) {
+              return {'workout_plan': decoded};
+            }
+            // Fallback par défaut
+            return {'data': decoded};
+          }
+          return decoded as Map<String, dynamic>?;
         }
         return null;
       }

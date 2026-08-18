@@ -53,4 +53,21 @@ class ActivityService {
       return [];
     }
   }
+
+  Future<bool> writeWorkoutToHealth(String activityName, double calories, DateTime start, DateTime end) async {
+    try {
+      bool success = await _health.writeWorkoutData(
+        activityType: HealthWorkoutActivityType.OTHER,
+        start: start,
+        end: end,
+        totalEnergyBurned: calories.toInt(),
+        totalEnergyBurnedUnit: HealthDataUnit.KILOCALORIE,
+        title: activityName,
+      );
+      return success;
+    } catch (e) {
+      debugPrint("Erreur d'écriture Health/Google Fit: $e");
+      return false;
+    }
+  }
 }

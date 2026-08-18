@@ -5,8 +5,9 @@ import '../../services/exercise_library_service.dart';
 
 class ExerciseLibraryScreen extends StatefulWidget {
   final Function(String description, double caloriesBurned, int durationMinutes, String activityType) onAddActivity;
+  final double userWeight;
 
-  const ExerciseLibraryScreen({super.key, required this.onAddActivity});
+  const ExerciseLibraryScreen({super.key, required this.onAddActivity, required this.userWeight});
 
   @override
   State<ExerciseLibraryScreen> createState() => _ExerciseLibraryScreenState();
@@ -42,7 +43,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
     final kcalController = TextEditingController();
 
     // Default weight
-    const double userWeight = 70.0;
+    final double userWeight = widget.userWeight;
 
     await showDialog(
       context: context,
@@ -95,7 +96,7 @@ class _ExerciseLibraryScreenState extends State<ExerciseLibraryScreen> {
                     }
 
                     widget.onAddActivity(exercise.name, kcal, duration, 'Musculation');
-                    Navigator.pop(context);
+                    if (mounted) Navigator.pop(context);
                     
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('${exercise.name} ajouté ! (${kcal.toStringAsFixed(0)} kcal)')),

@@ -1,18 +1,13 @@
+//menu_planing_screen.dart
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:table_calendar/table_calendar.dart';
 
-import 'package:podometre/models/meal_plan_entry.dart';
-import 'package:podometre/models/meal_type.dart';
-import 'package:podometre/models/food_entry.dart';
-import 'package:podometre/providers/usage_tracker_service.dart';
-import 'package:podometre/providers/user_profile.dart';
+import '../main.dart' hide isSameDay;
 import 'package:podometre/services/service_locator.dart';
 
 class MenuPlanningTab extends StatefulWidget {
@@ -46,12 +41,15 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
   DateTime? _selectedDay;
   final TextEditingController _promptController = TextEditingController();
   final TextEditingController _searchApiController = TextEditingController();
+  final Set<String> _checkedIngredients = {};
 
-  String? _fridgeContent;
   String _recipeDifficulty = 'Normal'; // Simple, Normal, Difficile
-
-  List<String> _selectedMealTypes = ['Dîner'];
-  List<String> _selectedDishStyles = ['Plat chaud'];
+  final List<String> _selectedMealTypes = [
+    'Petit-déjeuner',
+    'Déjeuner',
+    'Collation',
+    'Dîner',
+  ];
 
   List<dynamic> _dailySuggestions = [];
   List<dynamic> _apiSearchResults = [];
@@ -60,10 +58,13 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
 
   @override
   void initState() {
-    super.initState();
-    _selectedDay = _focusedDay;
-    _fetchDailySuggestions();
-  }
+  super.initState();
+  _selectedDay = _focusedDay;
+
+  debugPrint("[TheMealDB] initState appelé - Lancement de _fetchDailySuggestions...");
+  
+  _fetchDailySuggestions();   // <--- Assure-toi que c'est bien cette ligne
+}
 
   @override
   void dispose() {
@@ -72,11 +73,14 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     super.dispose();
   }
 
-  // --- SCRAPING IMAGE BING ---
+  // --- SCRAPING IMAGE BING AVEC LOGS ---
   Future<String?> _fetchImageUrl(String query) async {
+    debugPrint(
+      "🔍 [IA-IMAGE] Tentative d'extraction d'image Bing pour : $query",
+    );
     try {
       final url = Uri.parse(
-        'https://www.bing.com/images/search?q=${Uri.encodeComponent(query + " recette plat")}&form=HDRSC3&first=1',
+        'https://www.bing.com/images/search?q=${Uri.encodeComponent(query + " food recipe high quality")}&form=HDRSC3&first=1',
       );
       final response = await http.get(
         url,
@@ -85,69 +89,257 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         },
       );
+
       if (response.statusCode == 200) {
-        final RegExp regex = RegExp(r'murl":"(https?://[^&]+)"');
+        final RegExp regex = RegExp(
+          r'(?:murl"|"murl"|murl&quot;)[:=]+(?:&quot;|")?(https?://[^"&;]+\.(?:jpg|jpeg|png))',
+        );
         final match = regex.firstMatch(response.body);
         if (match != null) {
+          debugPrint("✅ [IA-IMAGE] Image trouvée : ${match.group(1)}");
           return match.group(1);
+        } else {
+          debugPrint(
+            "⚠️ [IA-IMAGE] Aucune image trouvée dans le HTML pour : $query",
+          );
         }
+      } else {
+        debugPrint(
+          "❌ [IA-IMAGE] Erreur HTTP ${response.statusCode} lors de l'extraction d'image.",
+        );
       }
     } catch (e) {
-      debugPrint("Erreur scraping image: $e");
+      debugPrint("❌ [IA-IMAGE] Erreur (Exception) extraction image: $e");
     }
     return null;
   }
 
-  // --- SUGGESTIONS THEMEALDB (Entrée, Plat, Dessert) ---
-  Future<void> _fetchDailySuggestions() async {
-    if (!mounted) return;
-    setState(() => _isLoadingApi = true);
+  // --- LISTE DE COURSES AUTOMATIQUE PAR DATE ---
+  void _showShoppingListDialog() {
+    // Regrouper par date
+    Map<DateTime, List<String>> ingredientsByDate = {};
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    try {
-      final categories = [
-        'Starter',
-        'Beef',
-        'Dessert',
-      ]; // Entrée, Plat, Dessert
-      List<dynamic> tempSuggestions = [];
-
-      for (String cat in categories) {
-        final response = await http.get(
-          Uri.parse(
-            'https://www.themealdb.com/api/json/v1/1/filter.php?c=$cat',
-          ),
+    for (var plan in widget.mealPlans) {
+      // Filtrer les repas passés et s'assurer que les ingrédients existent
+      if (!plan.date.isBefore(today) &&
+          plan.ingredients != null &&
+          plan.ingredients!.isNotEmpty) {
+        final dateKey = DateTime(
+          plan.date.year,
+          plan.date.month,
+          plan.date.day,
         );
-        if (response.statusCode == 200) {
-          final data = json.decode(response.body);
-          if (data['meals'] != null && (data['meals'] as List).isNotEmpty) {
-            final meals = data['meals'] as List;
-            final randomMeal = meals[Random().nextInt(meals.length)];
-
-            // Fetch details to get instructions
-            final detailResp = await http.get(
-              Uri.parse(
-                'https://www.themealdb.com/api/json/v1/1/lookup.php?i=${randomMeal["idMeal"]}',
-              ),
-            );
-            if (detailResp.statusCode == 200) {
-              final detailData = json.decode(detailResp.body);
-              tempSuggestions.add(detailData['meals'][0]);
-            }
-          }
+        if (!ingredientsByDate.containsKey(dateKey)) {
+          ingredientsByDate[dateKey] = [];
         }
+        ingredientsByDate[dateKey]!.addAll(plan.ingredients!);
+      }
+    }
+
+    final sortedDates = ingredientsByDate.keys.toList()..sort();
+
+showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
+            title: const Text('🛒 Ma Liste de Courses'),
+            content: SizedBox(
+              width: double.maxFinite,
+              child:
+                  ingredientsByDate.isEmpty
+                      ? const Text(
+                        "Aucun ingrédient pour les repas planifiés à venir.",
+                      )
+                      : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: sortedDates.length,
+                        itemBuilder: (context, index) {
+                          final date = sortedDates[index];
+                          // Filtrer les doublons quotidiens
+                          final uniqueIngredients =
+                              ingredientsByDate[date]!.toSet().toList();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 16.0,
+                                  bottom: 8.0,
+                                ),
+                                child: Text(
+                                  DateFormat(
+                                    'EEEE d MMMM',
+                                    'fr_FR',
+                                  ).format(date).toUpperCase(),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Theme.of(context).primaryColor,
+                                  ),
+                                ),
+                              ),
+                              ...uniqueIngredients.map(
+                                (ing) {
+                                  final isChecked = _checkedIngredients.contains(ing);
+                                  return CheckboxListTile(
+                                    value: isChecked,
+                                    onChanged: (bool? val) {
+                                      setStateDialog(() {
+                                        if (val == true) {
+                                          _checkedIngredients.add(ing);
+                                        } else {
+                                          _checkedIngredients.remove(ing);
+                                        }
+                                      });
+                                    },
+                                    title: Text(
+                                      ing,
+                                      style: TextStyle(
+                                        decoration: isChecked ? TextDecoration.lineThrough : null,
+                                        color: isChecked ? Colors.grey : null,
+                                      ),
+                                    ),
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    visualDensity: VisualDensity.compact,
+                                  );
+                                },
+                              ),
+                              const Divider(),
+                            ],
+                          );
+                        },
+                      ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setStateDialog(() {
+                    _checkedIngredients.clear();
+                  });
+                },
+                child: const Text('RÉINITIALISER'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('FERMER'),
+              ),
+            ],
+          ),
+      ),
+    );
+  }
+
+  // --- SUGGESTIONS THEMEALDB AVEC LOGS ---
+  // --- SUGGESTIONS THEMEALDB (VERSION CORRIGÉE ET ROBUSTE) ---
+// --- SUGGESTIONS THEMEALDB - VERSION FINALE (logs très précis) ---
+Future<void> _fetchDailySuggestions() async {
+  if (!mounted) return;
+
+  setState(() => _isLoadingApi = true);
+
+  debugPrint("==================================================");
+  debugPrint("[TheMealDB] 🚀 DÉMARRAGE récupération suggestions quotidiennes");
+
+  try {
+    // Catégories fiables selon TheMealDB en 2026
+    final List<String> categories = ['Chicken', 'Beef', 'Seafood', 'Dessert'];
+
+    final List<dynamic> tempSuggestions = [];
+
+    for (final String category in categories) {
+      debugPrint("\n[TheMealDB] === Catégorie : $category ===");
+
+      final Uri url = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/filter.php',
+        {'c': category},
+      );
+
+      debugPrint("[TheMealDB] URL → $url");
+
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+
+      debugPrint("[TheMealDB] Status HTTP → ${response.statusCode}");
+      debugPrint("[TheMealDB] Taille réponse → ${response.body.length} caractères");
+
+      if (response.statusCode != 200) {
+        debugPrint("[TheMealDB] ❌ Erreur HTTP ${response.statusCode}");
+        continue;
       }
 
-      if (mounted) {
-        setState(() {
-          _dailySuggestions = tempSuggestions;
-          _isLoadingApi = false;
-        });
+      final data = json.decode(response.body);
+
+      debugPrint("[TheMealDB] Clé 'meals' présente ? ${data.containsKey('meals')}");
+      debugPrint("[TheMealDB] Type de 'meals' → ${data['meals']?.runtimeType}");
+
+      if (data['meals'] == null) {
+        debugPrint("[TheMealDB] ⚠️ 'meals' est NULL (comportement courant de TheMealDB)");
+        continue;
       }
-    } catch (e) {
-      debugPrint("Erreur API MealDB: $e");
-      if (mounted) setState(() => _isLoadingApi = false);
+
+      final List<dynamic>? meals = data['meals'] as List<dynamic>?;
+
+      if (meals == null || meals.isEmpty) {
+        debugPrint("[TheMealDB] ⚠️ Liste de repas vide pour $category");
+        continue;
+      }
+
+      debugPrint("[TheMealDB] ✅ ${meals.length} repas trouvés !");
+
+      // Sélection aléatoire
+      final randomMeal = meals[Random().nextInt(meals.length)];
+      final String mealId = randomMeal['idMeal'].toString();
+      final String mealName = randomMeal['strMeal'] ?? 'Sans nom';
+
+      debugPrint("[TheMealDB] 🎲 Repas sélectionné → $mealName (ID: $mealId)");
+
+      // Récupération des détails complets
+      final Uri detailUrl = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/lookup.php',
+        {'i': mealId},
+      );
+
+      final detailResp = await http.get(detailUrl).timeout(const Duration(seconds: 10));
+
+      if (detailResp.statusCode == 200) {
+        final detailData = json.decode(detailResp.body);
+        if (detailData['meals'] != null && (detailData['meals'] as List).isNotEmpty) {
+          tempSuggestions.add(detailData['meals'][0]);
+          debugPrint("[TheMealDB] ✅ Détails ajoutés avec succès");
+        } else {
+          debugPrint("[TheMealDB] ⚠️ Détails vides pour cet ID");
+        }
+      } else {
+        debugPrint("[TheMealDB] ❌ Erreur lookup.php : ${detailResp.statusCode}");
+      }
     }
+
+    debugPrint("\n[TheMealDB] 🎯 FIN → ${tempSuggestions.length} suggestions récupérées");
+
+    if (mounted) {
+      setState(() {
+        _dailySuggestions = tempSuggestions;
+        _isLoadingApi = false;
+      });
+    }
+
+    if (tempSuggestions.isEmpty) {
+      debugPrint("[TheMealDB] ❌ Aucune suggestion n'a pu être chargée aujourd'hui");
+    }
+
+  } catch (e, stackTrace) {
+    debugPrint("[TheMealDB] 🔥 EXCEPTION : $e");
+    debugPrint(stackTrace.toString());
+    if (mounted) setState(() => _isLoadingApi = false);
   }
+
+  debugPrint("==================================================\n");
+}
 
   Future<void> _searchApiRecipes(String query) async {
     if (query.isEmpty) {
@@ -164,9 +356,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
 
     try {
       final response = await http.get(
-        Uri.parse(
-          'https://www.themealdb.com/api/json/v1/1/search.php?s=$query',
-        ),
+        Uri.parse('https://www.themealdb.com/api/json/v1/1/search.php?s=${Uri.encodeQueryComponent(query)}'),
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -193,7 +383,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: Text("Planifier : ${mealApiData['strMeal']}"),
+              title: Text("Planifier : ${mealApiData['strMeal'] ?? ''}"),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -246,7 +436,8 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                 ElevatedButton(
                   onPressed: () {
                     String desc =
-                        "${mealApiData['strCategory'] ?? ''} - ${mealApiData['strArea'] ?? ''}";
+                        "${mealApiData['strCategory'] ?? ''} - ${mealApiData['strArea'] ?? ''}"
+                            .trim();
                     widget.addMealPlanEntry(
                       MealPlanEntry(
                         date: selectedDate,
@@ -275,150 +466,154 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     );
   }
 
-  // --- MENU GRATUIT THEMEALDB (NLP Parsing via IA) ---
-  Future<void> _generateFreeMealDBMenu() async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (ctx) => const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    "Création du menu TheMealDB et calcul des calories en cours...",
-                  ),
-                ),
-              ],
+ Future<void> _generateFreeMealDBMenu() async {
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => const AlertDialog(
+      content: Row(
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(width: 20),
+          Expanded(
+            child: Text(
+              "Récupération des recettes et calcul des calories USDA...",
             ),
           ),
-    );
+        ],
+      ),
+    ),
+  );
 
-    try {
-      final cats = ['Starter', 'Chicken', 'Dessert'];
-      List<Map<String, dynamic>> rawMeals = [];
-      for (String c in cats) {
-        final r1 = await http.get(
-          Uri.parse('https://www.themealdb.com/api/json/v1/1/filter.php?c=$c'),
-        );
-        final d1 = json.decode(r1.body);
-        if (d1['meals'] != null) {
-          final mList = d1['meals'] as List;
-          final rMeal = mList[Random().nextInt(mList.length)];
-          final r2 = await http.get(
-            Uri.parse(
-              'https://www.themealdb.com/api/json/v1/1/lookup.php?i=${rMeal["idMeal"]}',
-            ),
-          );
-          final d2 = json.decode(r2.body);
-          rawMeals.add(d2['meals'][0]);
-        }
-      }
+  try {
+    final List<String> categories = ['Starter', 'Beef', 'Dessert'];
+    final List<Map<String, dynamic>> rawMeals = [];
 
-      // TRÈS IMPORTANT : On raccourcit drastiquement les données envoyées à l'IA pour ne pas saturer sa mémoire
-      String mealsJsonString = jsonEncode(
-        rawMeals.map((m) {
-          String rawInstructions = m['strInstructions'] ?? "";
-          if (rawInstructions.length > 200)
-            rawInstructions = rawInstructions.substring(
-              0,
-              200,
-            ); // On coupe l'entrée !
+    // 1. Récupération des 3 repas depuis TheMealDB
+    for (final String category in categories) {
+      debugPrint("[TheMealDB] Génération menu → Catégorie : $category");
 
-          return {
-            "titre": m['strMeal']?.replaceAll('"', "'"),
-            "instructions": rawInstructions
-                .replaceAll('\r', ' ')
-                .replaceAll('\n', ' ')
-                .replaceAll('"', "'"),
-            "ingredients":
-                List.generate(
-                  10,
-                  (i) =>
-                      "${m['strMeasure${i + 1}']} ${m['strIngredient${i + 1}']}",
-                ).map((e) => e.trim()).where((e) => e.length > 2).toList(),
-          };
-        }).toList(),
+      final Uri filterUrl = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/filter.php',
+        {'c': category},
       );
 
-      final prompt = '''
-      Voici 3 recettes issues de TheMealDB (Entrée, Plat, Dessert).
-      TÂCHE : Traduis les titres et instructions en français. Calcule les calories et macros.
-      Adapte la complexité à la difficulté : $_recipeDifficulty.
-      
-      RÈGLES STRICTES POUR NE PAS COUPER LA RÉPONSE JSON :
-      1. "description" : MAXIMUM 3 MOTS.
-      2. "recipe_instructions" : MAXIMUM 1 SEULE PHRASE TRES COURTE.
-      
-      Recettes brutes : $mealsJsonString
-      
-      Retourne UNIQUEMENT un JSON strict :
-      {
-        "meals": [
-          {
-            "mealType": "dinner",
-            "mealName": "Titre français",
-            "description": "Très court",
-            "prepTime": 15,
-            "utensils": ["Poêle"],
-            "ingredients": ["100g riz"],
-            "recipe_instructions": "Une seule ligne d'instruction.",
-            "estimatedCalories": 400, "estimatedProteins": 20.0, "estimatedCarbs": 30.0, "estimatedFats": 10.0
-          }
-        ]
-      }
-      ''';
+      final r1 = await http.get(filterUrl).timeout(const Duration(seconds: 10));
 
-      final result = await SL.aiService.fetchJSONResponse(
-        prompt: prompt,
-        temperature: 0.3,
+      if (r1.statusCode != 200) continue;
+
+      final d1 = json.decode(r1.body);
+      if (d1['meals'] == null || (d1['meals'] as List).isEmpty) continue;
+
+      final mList = d1['meals'] as List;
+      final randomMeal = mList[Random().nextInt(mList.length)];
+
+      final Uri lookupUrl = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/lookup.php',
+        {'i': randomMeal['idMeal']},
       );
-      if (mounted) Navigator.pop(context);
 
-      if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
+      final r2 = await http.get(lookupUrl).timeout(const Duration(seconds: 10));
 
-        final mealsList = result['meals'] as List;
-        for (int i = 0; i < mealsList.length; i++) {
-          var m = mealsList[i];
-          widget.addMealPlanEntry(
-            MealPlanEntry(
-              date: _selectedDay ?? DateTime.now(),
-              mealType: MealType.dinner,
-              mealName: m['mealName'],
-              description: m['description'],
-              recipeInstructions: m['recipe_instructions'],
-              prepTime: (m['prepTime'] as num?)?.toInt(),
-              utensils:
-                  (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
-              ingredients:
-                  (m['ingredients'] as List?)
-                      ?.map((e) => e.toString())
-                      .toList(),
-              imageUrl:
-                  rawMeals.length > i ? rawMeals[i]['strMealThumb'] : null,
-              estimatedCalories: m['estimatedCalories'] ?? 0,
-              estimatedProteins:
-                  (m['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
-              estimatedCarbs: (m['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
-              estimatedFats: (m['estimatedFats'] as num?)?.toDouble() ?? 0.0,
-            ),
-          );
+      if (r2.statusCode == 200) {
+        final d2 = json.decode(r2.body);
+        if (d2['meals'] != null && (d2['meals'] as List).isNotEmpty) {
+          rawMeals.add(d2['meals'][0] as Map<String, dynamic>);
         }
-      }
-    } catch (e) {
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: Colors.red),
-        );
       }
     }
-  }
 
-  // --- MENU PREMIUM (Génération totale IA) ---
+    // 2. Traitement nutritionnel et ajout au Meal Plan
+    for (int i = 0; i < rawMeals.length; i++) {
+      final meal = rawMeals[i];
+
+      List<String> ingredientsList = [];
+      double totalCalories = 0;
+      double totalProteins = 0;
+      double totalCarbs = 0;
+      double totalFats = 0;
+
+      for (int j = 1; j <= 20; j++) {
+        final String? measure = meal['strMeasure$j'];
+        final String? ingredient = meal['strIngredient$j'];
+
+        if (ingredient != null && ingredient.trim().isNotEmpty) {
+          final cleanMeasure = (measure ?? '').trim();
+          final cleanIngredient = ingredient.trim();
+
+          final ingredientText = cleanMeasure.isEmpty
+              ? cleanIngredient
+              : '$cleanMeasure $cleanIngredient';
+
+          ingredientsList.add(ingredientText);
+
+          // Calcul des macros via USDA
+          final macros = await SL.usdaNlp.getMacrosFromUSDA(
+            cleanIngredient,
+            cleanMeasure,
+          );
+
+          totalCalories += macros['calories'] ?? 0;
+          totalProteins += macros['proteins'] ?? 0;
+          totalCarbs += macros['carbs'] ?? 0;
+          totalFats += macros['fats'] ?? 0;
+        }
+      }
+
+      // Assignation intelligente du type de repas
+      final MealType mealType = switch (i) {
+        0 => MealType.lunch,    // Starter
+        1 => MealType.dinner,   // Beef (plat principal)
+        _ => MealType.snack,    // Dessert
+      };
+
+      widget.addMealPlanEntry(
+        MealPlanEntry(
+          date: _selectedDay ?? DateTime.now(),
+          mealType: mealType,
+          mealName: meal['strMeal'] ?? "Repas TheMealDB",
+          description: meal['strCategory'] ?? "TheMealDB",
+          recipeInstructions: meal['strInstructions'],
+          prepTime: 25,
+          utensils: const ["Ustensiles standards"],
+          ingredients: ingredientsList,
+          imageUrl: meal['strMealThumb'],
+          estimatedCalories: totalCalories.toInt(),
+          estimatedProteins: totalProteins,
+          estimatedCarbs: totalCarbs,
+          estimatedFats: totalFats,
+          source: 'TheMealDB',
+        ),
+      );
+    }
+
+    if (mounted) {
+      Navigator.pop(context); // Ferme le dialog de chargement
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Menu TheMealDB généré avec succès !"),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  } catch (e, stackTrace) {
+    debugPrint("[GenerateMenu] ERREUR : $e");
+    debugPrint(stackTrace.toString());
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Erreur lors de la génération du menu : $e"),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+}
+
   Future<void> _generateMenuWithIA({bool isWeekly = false}) async {
     if (!widget.isPremiumUser) {
       return _generateFreeMealDBMenu();
@@ -435,7 +630,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                 SizedBox(width: 20),
                 Expanded(
                   child: Text(
-                    "Génération IA et recherche d'images en cours...",
+                    "L'IA crée vos recettes, calcul des macros en cours...",
                   ),
                 ),
               ],
@@ -444,30 +639,27 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     );
 
     final String prompt = '''
-    Nutritionniste expert. Génère un plan de repas pour ${isWeekly ? "7 JOURS COMPLETS (Lundi à Dimanche)" : "1 JOUR"}.
-    PROFIL: ${widget.userProfile.age} ans, ${widget.userProfile.gender}, Objectif: ${widget.currentGoals.weightGoalType}. Cal: ${widget.currentGoals.targetCalories} kcal/j.
-    FILTRES DEMANDÉS: Repas (${_selectedMealTypes.join(', ')}), Style (${_selectedDishStyles.join(', ')}).
-    DIFFICULTÉ: $_recipeDifficulty. PRÉFÉRENCES: "${_promptController.text}". FRIGO: "${_fridgeContent ?? 'Non fourni'}".
-    
-    RÈGLES STRICTES POUR NE PAS PLANTER L'API :
-    1. "description": MAX 3 MOTS.
-    2. "recipe_instructions": MAX 2 PHRASES TRES COURTES.
-    3. "ingredients": MAX 5 INGREDIENTS ESSENTIELS.
-    4. Pas de sauts de ligne dans les valeurs.
+    Génère un plan de repas pour ${isWeekly ? "7 JOURS (du Lundi au Dimanche)" : "1 JOUR"}.
+    PROFIL: Objectif ${widget.currentGoals.weightGoalType}.
+    INSTRUCTIONS VITALES:
+    - Remplit le champ "recipe_instructions" avec des instructions TRES DETAILLEES, claires et étape par étape (plusieurs phrases) pour que l'utilisateur puisse cuisiner la recette. 
+    - Le JSON doit valider avec certitude absolue la structure suivante. Evite les tableaux à la racine, mets toujours la clé "meals".
     
     Format JSON strict :
     {
       "meals": [
         {
-          "day_offset": 0, // 0 = Lundi, 1 = Mardi, ... jusqu'à 6 = Dimanche (Si mode semaine)
-          "mealType": "breakfast|lunch|dinner|snack",
-          "mealName": "...",
-          "description": "...",
+          "day_offset": 0, 
+          "mealType": "dinner",
+          "mealName": "Titre plat",
+          "description": "Courte",
           "prepTime": 15,
-          "utensils": ["Poêle"],
-          "ingredients": ["100g de poulet"],
-          "recipe_instructions": "...",
-          "estimatedCalories": 0, "estimatedProteins": 0.0, "estimatedCarbs": 0.0, "estimatedFats": 0.0
+          "utensils": ["Poêle", "Casserole"],
+          "ingredients": [
+            {"name": "poulet", "measure": "100g"},
+            {"name": "riz", "measure": "50g"}
+          ],
+          "recipe_instructions": "1. Coupez le poulet en dés. 2. Faites chauffer la poêle... etc."
         }
       ]
     }
@@ -476,7 +668,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     try {
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
-        temperature: 0.7,
+        temperature: 0.6,
       );
       if (mounted) Navigator.pop(context);
 
@@ -484,17 +676,30 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         await widget.usageTrackerService.incrementDeepSeekApiCall();
         final List<dynamic> mealsRaw = result['meals'] ?? [];
 
-        // CORRECTION DE LA DATE HEBDOMADAIRE (Trouver le lundi)
         DateTime baseDate = _selectedDay!;
-        if (isWeekly) {
-          // Retire le nombre de jours correspondant au jour actuel (Lundi = 1, donc on retire 0) pour tomber sur lundi.
+        if (isWeekly)
           baseDate = baseDate.subtract(Duration(days: baseDate.weekday - 1));
-        }
 
         for (var m in mealsRaw) {
           int dayOffset = (m['day_offset'] as num?)?.toInt() ?? 0;
           DateTime mealDate =
               isWeekly ? baseDate.add(Duration(days: dayOffset)) : baseDate;
+
+          List<dynamic> rawIngs = m['ingredients'] ?? [];
+          List<String> combinedIngredients = [];
+          double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
+
+          for (var ing in rawIngs) {
+            String name = ing['name'] ?? '';
+            String measure = ing['measure'] ?? '';
+            combinedIngredients.add("${measure.trim()} ${name.trim()}".trim());
+
+            final macros = await SL.usdaNlp.getMacrosFromUSDA(name, measure);
+            totalCal += macros['calories']!;
+            totalPro += macros['proteins']!;
+            totalCarb += macros['carbs']!;
+            totalFat += macros['fats']!;
+          }
 
           String? scrapedImageUrl = await _fetchImageUrl(m['mealName']);
 
@@ -511,16 +716,12 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
               prepTime: (m['prepTime'] as num?)?.toInt(),
               utensils:
                   (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
-              ingredients:
-                  (m['ingredients'] as List?)
-                      ?.map((e) => e.toString())
-                      .toList(),
+              ingredients: combinedIngredients,
               imageUrl: scrapedImageUrl,
-              estimatedCalories: m['estimatedCalories'] ?? 0,
-              estimatedProteins:
-                  (m['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
-              estimatedCarbs: (m['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
-              estimatedFats: (m['estimatedFats'] as num?)?.toDouble() ?? 0.0,
+              estimatedCalories: totalCal.toInt(),
+              estimatedProteins: totalPro,
+              estimatedCarbs: totalCarb,
+              estimatedFats: totalFat,
             ),
           );
         }
@@ -533,57 +734,6 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         );
       }
     }
-  }
-
-  void _showShoppingListDialog() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-
-    // Récupérer les ingrédients à partir d'aujourd'hui
-    List<String> computedList = [];
-    for (var plan in widget.mealPlans) {
-      if (!plan.date.isBefore(today) && plan.ingredients != null) {
-        computedList.addAll(plan.ingredients!);
-      }
-    }
-
-    // Retirer les doublons tout en gardant une liste
-    final uniqueIngredients = computedList.toSet().toList();
-
-    showDialog(
-      context: context,
-      builder:
-          (ctx) => AlertDialog(
-            title: const Text('🛒 Ma Liste de Courses'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child:
-                  uniqueIngredients.isEmpty
-                      ? const Text(
-                        "Aucun ingrédient pour les repas planifiés à venir.",
-                      )
-                      : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: uniqueIngredients.length,
-                        itemBuilder:
-                            (context, index) => ListTile(
-                              leading: const Icon(
-                                Icons.check_box_outline_blank,
-                                color: Colors.teal,
-                              ),
-                              title: Text(uniqueIngredients[index]),
-                              dense: true,
-                            ),
-                      ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Fermer'),
-              ),
-            ],
-          ),
-    );
   }
 
   void _showRecipeDialog(MealPlanEntry meal) {
@@ -629,15 +779,15 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                           Colors.orange,
                         ),
                         _buildMacroBadge(
-                          "${meal.estimatedProteins}g Pro",
+                          "${meal.estimatedProteins.toStringAsFixed(0)}g Pro",
                           Colors.blue,
                         ),
                         _buildMacroBadge(
-                          "${meal.estimatedCarbs}g Glu",
+                          "${meal.estimatedCarbs.toStringAsFixed(0)}g Glu",
                           Colors.green,
                         ),
                         _buildMacroBadge(
-                          "${meal.estimatedFats}g Lip",
+                          "${meal.estimatedFats.toStringAsFixed(0)}g Lip",
                           Colors.purple,
                         ),
                       ],
@@ -653,28 +803,43 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                         ),
                       ],
                     ),
-                    if (meal.utensils != null && meal.utensils!.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.kitchen, color: Colors.grey.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              "Ustensiles : ${meal.utensils!.join(', ')}",
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
                     const Divider(height: 32, thickness: 1),
+
+                    // --- USTENSILES ---
+                    if (meal.utensils != null && meal.utensils!.isNotEmpty) ...[
+                      Text(
+                        "Ustensiles Nécessaires",
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8.0,
+                        runSpacing: 4.0,
+                        children:
+                            meal.utensils!
+                                .map(
+                                  (u) => Chip(
+                                    label: Text(u),
+                                    avatar: const Icon(Icons.kitchen, size: 18),
+                                    backgroundColor: Colors.grey.shade100,
+                                  ),
+                                )
+                                .toList(),
+                      ),
+                      const Divider(height: 32, thickness: 1),
+                    ],
+
+                    // --- INGRÉDIENTS ---
                     if (meal.ingredients != null &&
                         meal.ingredients!.isNotEmpty) ...[
                       Text(
                         "Ingrédients",
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -692,6 +857,8 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                       ),
                       const Divider(height: 32, thickness: 1),
                     ],
+
+                    // --- PRÉPARATION ---
                     Text(
                       "Préparation",
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -761,14 +928,13 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
-          // Bouton Liste de courses gardé en haut
+          // Bouton Liste de courses automatique au dessus
           Padding(
             padding: const EdgeInsets.only(bottom: 16.0),
             child: ElevatedButton.icon(
-              onPressed:
-                  _showShoppingListDialog, // Cette fonction agrège automatiquement les ingrédients du calendrier
+              onPressed: _showShoppingListDialog,
               icon: const Icon(Icons.shopping_basket),
-              label: const Text("Voir ma liste de courses (auto)"),
+              label: const Text("Voir ma dernière liste de courses (Auto)"),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.teal.shade100,
                 foregroundColor: Colors.teal.shade900,
@@ -786,6 +952,13 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
             child:
                 _isLoadingApi
                     ? const Center(child: CircularProgressIndicator())
+                    : _dailySuggestions.isEmpty
+                    ? const Center(
+                      child: Text(
+                        "Aucune suggestion aujourd'hui, vérifiez votre connexion.",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
                     : ListView.builder(
                       scrollDirection: Axis.horizontal,
                       itemCount: _dailySuggestions.length,
@@ -871,7 +1044,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                   ),
                   const SizedBox(height: 8),
                   DropdownButtonFormField<String>(
-                    value: _recipeDifficulty,
+                    initialValue: _recipeDifficulty,
                     decoration: const InputDecoration(
                       labelText: "Difficulté des recettes",
                     ),
@@ -890,6 +1063,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                       labelText: 'Préférences (ex: pas de viande)',
                     ),
                   ),
+                  // Suppression de la Checkbox "Créer une liste de courses"
                   const SizedBox(height: 12),
                   const Text(
                     'Repas à inclure :',
@@ -905,42 +1079,17 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                                 selected: _selectedMealTypes.contains(type),
                                 onSelected: (selected) {
                                   setState(() {
-                                    if (selected)
+                                    if (selected) {
                                       _selectedMealTypes.add(type);
-                                    else
+                                    } else {
                                       _selectedMealTypes.remove(type);
+                                    }
                                   });
                                 },
                               ),
                             )
                             .toList(),
                   ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Style :',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  Wrap(
-                    spacing: 8,
-                    children:
-                        ['Plat chaud', 'Plat froid', 'Dessert', 'Végétarien']
-                            .map(
-                              (type) => FilterChip(
-                                label: Text(type),
-                                selected: _selectedDishStyles.contains(type),
-                                onSelected: (selected) {
-                                  setState(() {
-                                    if (selected)
-                                      _selectedDishStyles.add(type);
-                                    else
-                                      _selectedDishStyles.remove(type);
-                                  });
-                                },
-                              ),
-                            )
-                            .toList(),
-                  ),
-
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1072,9 +1221,31 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                   ),
                 )
                 : const Icon(Icons.restaurant),
-        title: Text(
-          meal.mealName,
-          style: const TextStyle(fontWeight: FontWeight.bold),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                meal.mealName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: meal.source == 'IA' ? Colors.purple.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                meal.source,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: meal.source == 'IA' ? Colors.purple : Colors.green,
+                ),
+              ),
+            ),
+          ],
         ),
         subtitle: Text('${meal.estimatedCalories} kcal'),
         children: [
@@ -1121,9 +1292,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
                           onPressed: () {
                             widget.addFoodEntryToTracker(meal.toFoodEntry());
                             ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text("${meal.mealName} ajouté !"),
-                              ),
+                              const SnackBar(content: Text(" ajouté !")),
                             );
                           },
                         ),

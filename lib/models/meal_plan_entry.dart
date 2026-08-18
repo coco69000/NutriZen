@@ -19,6 +19,7 @@ class MealPlanEntry {
   final int? prepTime;
   final List<String>? utensils;
   final List<String>? ingredients;
+  final String source;
 
   MealPlanEntry({
     String? id,
@@ -35,6 +36,7 @@ class MealPlanEntry {
     this.prepTime,
     this.utensils,
     this.ingredients,
+    this.source = 'IA',
   }) : id = id ?? const Uuid().v4();
 
   FoodEntry toFoodEntry() {
@@ -47,7 +49,7 @@ class MealPlanEntry {
       timestamp: date,
       mealType: mealType,
       isAiEstimated: true,
-      source: 'Plan IA',
+      source: source,
     );
   }
 
@@ -66,6 +68,7 @@ class MealPlanEntry {
         'prepTime': prepTime,
         'utensils': utensils,
         'ingredients': ingredients,
+        'source': source,
       };
 
   factory MealPlanEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
@@ -87,5 +90,6 @@ class MealPlanEntry {
         prepTime: json['prepTime'] as int?,
         utensils: (json['utensils'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
         ingredients: (json['ingredients'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
+        source: json['source'] ?? 'IA',
       );
 }
