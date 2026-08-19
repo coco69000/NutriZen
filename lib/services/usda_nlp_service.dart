@@ -2,12 +2,17 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class UsdaNlpService {
-  final String _usdaApiKey = 'X5NbNt9p8kyfqHirb4H9pgPyI1JaV4rJ10rvnlBn';
+  final String _usdaApiKey;
+
+  UsdaNlpService({String? apiKey})
+      : _usdaApiKey = apiKey ?? const String.fromEnvironment('USDA_API_KEY');
 
   // MOTEUR NLP POUR CONVERTIR LES MESURES EN GRAMMES
   double parseMeasureToGrams(String measureText) {
     String m = measureText.toLowerCase().trim();
-    if (m.isEmpty) return 100.0;
+    if (m.isEmpty || m == '1' || m == '1.0' || m == 'un' || m == 'une' || m == 'portion') {
+      return 100.0;
+    }
 
     double amount = 1.0;
     final RegExp numRegex = RegExp(r'(\d+[\.,]?\d*|\d+\/\d+)');
@@ -37,7 +42,7 @@ class UsdaNlpService {
     if (m.contains('pinch') || m.contains('dash')) return amount * 1.0;
     if (m.contains('clove')) return amount * 5.0;
 
-    return amount * 120.0;
+    return amount * 100.0;
   }
 
   // RECHERCHE DANS LA BASE USDA

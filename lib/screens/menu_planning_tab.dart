@@ -55,6 +55,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
   List<dynamic> _apiSearchResults = [];
   bool _isLoadingApi = false;
   bool _isSearchingApi = false;
+  bool _isProcessing = false;
 
   @override
   void initState() {
@@ -615,57 +616,76 @@ Future<void> _fetchDailySuggestions() async {
 }
 
   Future<void> _generateMenuWithIA({bool isWeekly = false}) async {
-    if (!widget.isPremiumUser) {
-      return _generateFreeMealDBMenu();
-    }
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (ctx) => const AlertDialog(
-            content: Row(
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(width: 20),
-                Expanded(
-                  child: Text(
-                    "L'IA crée vos recettes, calcul des macros en cours...",
-                  ),
-                ),
-              ],
-            ),
-          ),
-    );
-
-    final String prompt = '''
-    Génère un plan de repas pour ${isWeekly ? "7 JOURS (du Lundi au Dimanche)" : "1 JOUR"}.
-    PROFIL: Objectif ${widget.currentGoals.weightGoalType}.
-    INSTRUCTIONS VITALES:
-    - Remplit le champ "recipe_instructions" avec des instructions TRES DETAILLEES, claires et étape par étape (plusieurs phrases) pour que l'utilisateur puisse cuisiner la recette. 
-    - Le JSON doit valider avec certitude absolue la structure suivante. Evite les tableaux à la racine, mets toujours la clé "meals".
-    
-    Format JSON strict :
-    {
-      "meals": [
-        {
-          "day_offset": 0, 
-          "mealType": "dinner",
-          "mealName": "Titre plat",
-          "description": "Courte",
-          "prepTime": 15,
-          "utensils": ["Poêle", "Casserole"],
-          "ingredients": [
-            {"name": "poulet", "measure": "100g"},
-            {"name": "riz", "measure": "50g"}
-          ],
-          "recipe_instructions": "1. Coupez le poulet en dés. 2. Faites chauffer la poêle... etc."
-        }
-      ]
-    }
-    ''';
+    if (_isProcessing) return;
+    setState(() => _isProcessing = true);
 
     try {
+      if (!widget.isPremiumUser) {
+        return await _generateFreeMealDBMenu();
+      }
+
+      // 1. CALCUL DU RESTE MACRONUTRITIONNEL DE LA JOURNÉE
+      final dailyEntries = widget.mealPlans
+          .where((m) => isSameDay(m.date, _selectedDay ?? DateTime.now()))
+          .toList();
+      
+      double consumedCarbs = dailyEntries.fold(0.0, (s, e) => s + e.estimatedCarbs);
+      double consumedPro = dailyEntries.fold(0.0, (s, e) => s + e.estimatedProteins);
+      
+      String contextualConstraint = "";
+      if (consumedCarbs > (widget.currentGoals.targetCarbs * 0.75)) {
+        contextualConstraint = "L'utilisateur a déjà consommé l'essentiel de ses glucides (${consumedCarbs.toInt()}g). Propose impérativement des repas pauvres en glucides (Low-Carb), riches en protéines et légumes verts.";
+      } else if (consumedPro < (widget.currentGoals.targetProteins * 0.4)) {
+        contextualConstraint = "L'utilisateur manque de protéines aujourd'hui. Privilégie une source de protéine dense (poulet, poisson, tofu, œufs).";
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder:
+            (ctx) => const AlertDialog(
+              content: Row(
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(width: 20),
+                  Expanded(
+                    child: Text(
+                      "L'IA adapte les repas selon vos macronutriments restants...",
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      );
+
+      final String prompt = '''
+      Génère un plan de repas pour ${isWeekly ? "7 JOURS (du Lundi au Dimanche)" : "1 JOUR"}.
+      PROFIL: Objectif ${widget.currentGoals.weightGoalType}.
+      CONTRAINTE CONTEXTUELLE DE LA JOURNÉE : $contextualConstraint
+      INSTRUCTIONS VITALES:
+      - Remplit le champ "recipe_instructions" avec des instructions TRES DETAILLEES, claires et étape par étape (plusieurs phrases) pour que l'utilisateur puisse cuisiner la recette. 
+      - Le JSON doit valider avec certitude absolue la structure suivante. Evite les tableaux à la racine, mets toujours la clé "meals".
+      
+      Format JSON strict :
+      {
+        "meals": [
+          {
+            "day_offset": 0, 
+            "mealType": "dinner",
+            "mealName": "Titre plat",
+            "description": "Courte",
+            "prepTime": 15,
+            "utensils": ["Poêle", "Casserole"],
+            "ingredients": [
+              {"name": "poulet", "measure": "100g"},
+              {"name": "riz", "measure": "50g"}
+            ],
+            "recipe_instructions": "1. Coupez le poulet en dés. 2. Faites chauffer la poêle... etc."
+          }
+        ]
+      }
+      ''';
+
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
         temperature: 0.6,
@@ -673,7 +693,6 @@ Future<void> _fetchDailySuggestions() async {
       if (mounted) Navigator.pop(context);
 
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
         final List<dynamic> mealsRaw = result['meals'] ?? [];
 
         DateTime baseDate = _selectedDay!;
@@ -681,7 +700,7 @@ Future<void> _fetchDailySuggestions() async {
           baseDate = baseDate.subtract(Duration(days: baseDate.weekday - 1));
 
         for (var m in mealsRaw) {
-          int dayOffset = (m['day_offset'] as num?)?.toInt() ?? 0;
+          int dayOffset = safeParseInt(m['day_offset']);
           DateTime mealDate =
               isWeekly ? baseDate.add(Duration(days: dayOffset)) : baseDate;
 
@@ -713,7 +732,7 @@ Future<void> _fetchDailySuggestions() async {
               mealName: m['mealName'],
               description: m['description'],
               recipeInstructions: m['recipe_instructions'],
-              prepTime: (m['prepTime'] as num?)?.toInt(),
+              prepTime: m['prepTime'] != null ? safeParseInt(m['prepTime']) : null,
               utensils:
                   (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
               ingredients: combinedIngredients,
@@ -733,6 +752,8 @@ Future<void> _fetchDailySuggestions() async {
           SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -1095,8 +1116,10 @@ Future<void> _fetchDailySuggestions() async {
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: () => _generateMenuWithIA(isWeekly: false),
-                          icon: const Icon(Icons.restaurant),
+                          onPressed: _isProcessing ? null : () => _generateMenuWithIA(isWeekly: false),
+                          icon: _isProcessing
+                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                              : const Icon(Icons.restaurant),
                           label: Text(
                             widget.isPremiumUser
                                 ? "Menu du Jour"
@@ -1108,9 +1131,12 @@ Future<void> _fetchDailySuggestions() async {
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed:
-                                () => _generateMenuWithIA(isWeekly: true),
-                            icon: const Icon(Icons.date_range),
+                            onPressed: _isProcessing
+                                ? null
+                                : () => _generateMenuWithIA(isWeekly: true),
+                            icon: _isProcessing
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                                : const Icon(Icons.date_range),
                             label: const Text("Semaine"),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.teal.shade600,

@@ -1,0 +1,84 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Collection "users"
+    match /users/{userId} {
+      // Un utilisateur connecté peut lire et écrire uniquement son propre document
+      allow read: if isOwner(userId);
+      
+      // Empêcher la création ou modification directe de 'isPremium' ou 'role' depuis le client
+      allow create: if isOwner(userId) 
+        && !('isPremium' in request.resource.data) 
+        && !('role' in request.resource.data);
+
+      allow update: if isOwner(userId) 
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'role', 'subscriptionStatus']))
+        && (request.resource.data.countryCode == resource.data.countryCode || resource.data.countryCode == null)
+        || request.auth.token.admin == true;
+
+      // Sous-collection badges (seul le backend Admin SDK via Cloud Function peut écrire)
+      match /badges/{badgeId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      // Sous-collection subscription (statut de paiement géré côté serveur)
+      match /subscription/{subDoc} {
+        allow read: if isOwner(userId);
+        // Seules les Cloud Functions (Admin SDK) peuvent modifier le statut d'abonnement
+        allow write: if false;
+      }
+
+      // Sous-collection usageTracking (suivi de quota géré exclusivement par les Cloud Functions)
+      match /usageTracking/{docId} {
+        allow read: if isOwner(userId);
+        // INTERDIT côté client : seule la Cloud Function (Admin SDK) peut écrire
+        allow write: if false;
+      }
+
+      // Validation des pesées (weightEntries)
+      match /weightEntries/{entryId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId) 
+                      && request.resource.data.weight is number
+                      && request.resource.data.weight >= 20 
+                      && request.resource.data.weight <= 300;
+        allow update: if false;
+        allow delete: if isOwner(userId);
+      }
+
+      // Validation des activités physiques (caloriesBurned <= 5000 kcal)
+      match /activities/{activityId} {
+        allow read: if isOwner(userId);
+        allow create: if isOwner(userId)
+                      && (!('caloriesBurned' in request.resource.data) || (request.resource.data.caloriesBurned is number && request.resource.data.caloriesBurned <= 5000));
+        allow update, delete: if isOwner(userId);
+      }
+
+      // Autres sous-collections utilisateur (ex: meals, goals, steps)
+      match /{allSubcollections=**} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // Collection des journaux d'audit (admin_logs) : inaccessible côté client
+    match /admin_logs/{logId} {
+      allow read, write: if false;
+    }
+  }
+}

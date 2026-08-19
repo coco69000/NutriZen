@@ -1,7 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-
-import '../models/meal_type.dart';
-
 class GoalHistoryEntry {
   final String id;
   final String goalType;
@@ -86,6 +82,9 @@ class UserProfile {
   List<String> availableEquipment;
   bool gymMode;
   List<GoalHistoryEntry> goalHistory;
+  String countryCode;
+  bool friendsRankingVisible;
+  bool worldRankingVisible;
 
   UserProfile({
     this.id = '',
@@ -117,6 +116,9 @@ class UserProfile {
     this.availableEquipment = const [],
     this.gymMode = false,
     this.goalHistory = const [],
+    this.countryCode = 'FR',
+    this.friendsRankingVisible = false,
+    this.worldRankingVisible = false,
   });
 
   Map<String, dynamic> toFirestore() => {
@@ -148,5 +150,8 @@ class UserProfile {
         'bodyFatPercentage': bodyFatPercentage,
         'availableEquipment': availableEquipment,
         'gymMode': gymMode,
+        'countryCode': countryCode,
+        'privacyFriends': friendsRankingVisible,
+        'privacyWorld': worldRankingVisible,
       };
 }

@@ -73,7 +73,7 @@ class MealPlanEntry {
 
   factory MealPlanEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       MealPlanEntry(
-        id: json['id'] ?? docId,
+        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
         date: (json['date'] as Timestamp).toDate(),
         mealType: MealType.values.firstWhere(
           (e) => e.name == json['mealType'],

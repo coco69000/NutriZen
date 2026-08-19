@@ -1,9 +1,9 @@
-﻿//main.dart
+//main.dart
 import 'dart:io';
 
-// 1. DONNEZ UN ALIAS EXPLICITE Ã€ FLUTTER
+// 1. DONNEZ UN ALIAS EXPLICITE À FLUTTER
 import 'package:flutter/material.dart' as flutter;
-// Gardez aussi l'import normal pour que le reste du fichier fonctionne sans prÃ©fixe
+// Gardez aussi l'import normal pour que le reste du fichier fonctionne sans préfixe
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/menu_planning_tab.dart';
@@ -25,19 +25,44 @@ import 'screens/activities/exercise_library_screen.dart';
 import 'services/service_locator.dart';
 import 'services/exercise_library_service.dart';
 import 'onboarding_flow_screen.dart';
+import 'models/badge_model.dart';
+import 'services/badge_service.dart';
+import 'screens/badges_screen.dart';
+import 'services/social_service.dart';
+import 'screens/social_tab.dart';
+import 'models/ranking_models.dart';
+import 'services/ranking_service.dart';
 
-// Firebase imports... (inchangÃ©s)
+// Firebase imports... (inchangés)
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 
-// NOUVEAU: Notifier global pour le mode de thÃ¨me (Clair / Sombre / SystÃ¨me)
+// NOUVEAU: Notifier global pour le mode de thème (Clair / Sombre / Système)
 final ValueNotifier<ThemeMode> appThemeNotifier = ValueNotifier(
   ThemeMode.system,
 );
+
+// =============================================================================
+// HELPERS GLOBAUX POUR LE PARSING SÉCURISÉ DES RÉPONSES IA
+// =============================================================================
+double safeParseDouble(dynamic val, [double defaultVal = 0.0]) {
+  if (val == null) return defaultVal;
+  if (val is num) return val.toDouble();
+  return double.tryParse(val.toString()) ?? defaultVal;
+}
+
+int safeParseInt(dynamic val, [int defaultVal = 0]) {
+  if (val == null) return defaultVal;
+  if (val is num) return val.toInt();
+  return int.tryParse(val.toString()) ?? defaultVal;
+}
+
 
 class AppStateProvider extends ChangeNotifier {
   final FirestoreService _firestoreService;
@@ -130,21 +155,8 @@ class AppStateProvider extends ChangeNotifier {
   }
 }
 
-// 1. Ajoute cette classe juste au-dessus de void main()
-class MyHttpOverrides extends HttpOverrides {
-  @override
-  HttpClient createHttpClient(SecurityContext? context) {
-    return super.createHttpClient(context)
-      ..badCertificateCallback =
-          (X509Certificate cert, String host, int port) => true;
-  }
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // 2. AJOUTE CETTE LIGNE ICI (TrÃ¨s important !)
-  if (kDebugMode) { HttpOverrides.global = MyHttpOverrides(); }
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await initializeDateFormatting('fr_FR', null);
@@ -152,12 +164,12 @@ Future<void> main() async {
   // Initialisation des services IA et Intelligence Locale
   await SL.initAll();
 
-  // NOUVEAU: VÃ©rifier si l'onboarding est terminÃ©
+  // NOUVEAU: Vérifier si l'onboarding est terminé
   final prefs = await SharedPreferences.getInstance();
   final bool onboardingCompleted =
       prefs.getBool('onboardingCompleted') ?? false;
 
-  // Charger le thÃ¨me depuis les prÃ©fÃ©rences
+  // Charger le thème depuis les préférences
   final String? savedTheme = prefs.getString('app_theme_mode');
   if (savedTheme == 'light') {
     appThemeNotifier.value = ThemeMode.light;
@@ -185,7 +197,7 @@ class NutritionApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           themeMode: currentMode,
 
-          // --- THÃˆME CLAIR (MODERNE) ---
+          // --- THÈME CLAIR (MODERNE) ---
           theme: flutter.ThemeData(
             colorScheme: ColorScheme.fromSeed(
               seedColor: flutter.Colors.teal,
@@ -254,26 +266,41 @@ class NutritionApp extends StatelessWidget {
             ),
           ),
 
-          // --- THÃˆME SOMBRE (MODERNE) ---
+          // --- THÈME SOMBRE (STRICTEMENT NOIR ET BLANC - DESIGN AMÉLIORÉ) ---
           darkTheme: flutter.ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: flutter.Colors.tealAccent,
-              brightness: Brightness.dark,
+            brightness: Brightness.dark,
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.white,
+              onPrimary: Colors.black,
+              secondary: Colors.white,
+              onSecondary: Colors.black,
+              surface: Colors.black,
+              onSurface: Colors.white,
+              background: Colors.black,
+              onBackground: Colors.white,
+              error: Colors.white,
+              onError: Colors.black,
+              outline: Color(0xFF333333),
             ),
             useMaterial3: true,
             visualDensity: VisualDensity.adaptivePlatformDensity,
-            scaffoldBackgroundColor: const Color(0xFF121212),
+            scaffoldBackgroundColor: Colors.black,
+            
+            // --- CARTES (Bordure subtile pour contraster avec le fond noir pur) ---
             cardTheme: const CardThemeData(
-              color: Color(0xFF1E1E1E),
-              elevation: 4.0,
+              color: Color(0xFF121212), // Gris très foncé pour le fond de la carte
+              elevation: 0,
               margin: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.all(Radius.circular(20.0)),
+                side: BorderSide(color: Color(0xFF2A2A2A), width: 1.5), // Bordure gris foncé
               ),
             ),
+            
+            // --- APP BAR ---
             appBarTheme: const flutter.AppBarTheme(
-              backgroundColor: Color(0xFF1F1F1F),
-              foregroundColor: flutter.Colors.white,
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
               centerTitle: true,
               elevation: 0,
               shape: RoundedRectangleBorder(
@@ -284,13 +311,16 @@ class NutritionApp extends StatelessWidget {
               titleTextStyle: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w700,
-                color: flutter.Colors.white,
+                color: Colors.white,
               ),
+              iconTheme: IconThemeData(color: Colors.white),
             ),
+            
+            // --- BOUTONS ÉLEVÉS (Inversé : Blanc sur Noir) ---
             elevatedButtonTheme: flutter.ElevatedButtonThemeData(
               style: flutter.ElevatedButton.styleFrom(
-                foregroundColor: const Color(0xFF121212),
-                backgroundColor: flutter.Colors.tealAccent.shade400,
+                foregroundColor: Colors.black,
+                backgroundColor: Colors.white,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 24,
@@ -305,22 +335,65 @@ class NutritionApp extends StatelessWidget {
                 ),
               ),
             ),
+            
+            // --- BOUTONS TEXTE ---
             textButtonTheme: flutter.TextButtonThemeData(
               style: flutter.TextButton.styleFrom(
-                foregroundColor: flutter.Colors.tealAccent.shade200,
+                foregroundColor: Colors.white,
                 textStyle: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ),
+            
+            // --- FAB (Bouton Flottant) ---
             floatingActionButtonTheme: flutter.FloatingActionButtonThemeData(
-              backgroundColor: flutter.Colors.tealAccent.shade400,
-              foregroundColor: const Color(0xFF121212),
-              elevation: 3,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+              elevation: 0,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
               ),
+            ),
+
+            // --- CHAMPS DE SAISIE (Input) ---
+            inputDecorationTheme: const InputDecorationTheme(
+              filled: true,
+              fillColor: Color(0xFF1A1A1A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+                borderSide: BorderSide(color: Color(0xFF333333)),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+                borderSide: BorderSide(color: Color(0xFF333333)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(12)),
+                borderSide: BorderSide(color: Colors.white, width: 2), // S'illumine en blanc au focus
+              ),
+              labelStyle: TextStyle(color: Colors.white70),
+              hintStyle: TextStyle(color: Colors.white38),
+            ),
+
+            // --- SÉPARATEURS & ICÔNES ---
+            dividerTheme: const DividerThemeData(
+              color: Color(0xFF333333),
+              thickness: 1,
+            ),
+            iconTheme: const IconThemeData(color: Colors.white),
+            
+            // --- TYPOGRAPHIE (Forcer le blanc par défaut pour la lisibilité) ---
+            textTheme: const TextTheme(
+              headlineLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              headlineMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              headlineSmall: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              titleLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              titleMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              bodyLarge: TextStyle(color: Colors.white),
+              bodyMedium: TextStyle(color: Colors.white70),
+              bodySmall: TextStyle(color: Colors.white54),
             ),
           ),
 
@@ -362,10 +435,10 @@ class AuthService {
     try {
       UserCredential userCredential = await _auth
           .createUserWithEmailAndPassword(email: email, password: password);
-      // SUPPRIMÃ‰ : La crÃ©ation du document est maintenant gÃ©rÃ©e par le flow d'onboarding
+      // SUPPRIMÉ : La création du document est maintenant gérée par le flow d'onboarding
       // ou par le AuthScreen classique.
 
-      // Laisser l'initialisation de l'abonnement ici est une bonne idÃ©e.
+      // Laisser l'initialisation de l'abonnement ici est une bonne idée.
       await SubscriptionService(
         userId: userCredential.user!.uid,
       )._initializeSubscription();
@@ -460,11 +533,22 @@ class FirestoreService {
   ) async {
     if (userId == null) return;
     try {
-      await _db
-          .collection('users')
-          .doc(userId)
-          .collection(collectionName)
-          .add(toFirestore(data));
+      final map = toFirestore(data);
+      final docId = map['id'] as String?;
+      if (docId != null && docId.isNotEmpty) {
+        await _db
+            .collection('users')
+            .doc(userId)
+            .collection(collectionName)
+            .doc(docId)
+            .set(map);
+      } else {
+        await _db
+            .collection('users')
+            .doc(userId)
+            .collection(collectionName)
+            .add(map);
+      }
     } catch (e) {
       print("Error adding document to $collectionName: $e");
       rethrow;
@@ -621,14 +705,14 @@ class FirestoreService {
     if (userId == null) return;
     try {
       // CORRECTION: Utiliser .set avec merge:true au lieu de .update
-      // Cela crÃ©e le document s'il n'existe pas, ou met Ã  jour le champ s'il existe.
+      // Cela crée le document s'il n'existe pas, ou met à jour le champ s'il existe.
       await _db.collection('users').doc(userId).set({
         'onboardingComplete': true,
       }, SetOptions(merge: true));
       print("Onboarding status set to TRUE for user $userId");
     } catch (e) {
       print("Error setting onboarding complete: $e");
-      // Il est bon de relancer l'erreur pour que le code appelant puisse la gÃ©rer si nÃ©cessaire
+      // Il est bon de relancer l'erreur pour que le code appelant puisse la gérer si nécessaire
       rethrow;
     }
   }
@@ -685,15 +769,17 @@ class SubscriptionService {
 
   // Set subscription status (e.g., after purchase)
   Future<void> setPremiumStatus(bool isPremium) async {
-    await _db
-        .collection('users')
-        .doc(userId)
-        .collection('subscription')
-        .doc('status')
-        .set({
-          'isPremium': isPremium,
-          'updateDate': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+    try {
+      // On appelle la Cloud Function sécurisée au lieu d'écrire direct dans Firestore
+      final callable = FirebaseFunctions.instance.httpsCallable('simulatePurchase');
+      await callable.call({'isPremium': isPremium});
+      
+      // Force le refresh du token utilisateur pour appliquer les nouveaux Custom Claims
+      await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    } catch (e) {
+      debugPrint("Erreur lors de la simulation d'achat: $e");
+      rethrow;
+    }
   }
 }
 
@@ -702,8 +788,9 @@ class UsageTrackerService {
   final String userId;
   int currentStreak = 0;
 
-  // Calcul du bonus : 5 de base + 3 appels supplÃ©mentaires tous les 5 jours de sÃ©rie
-  int get deepSeekLimit => 5 + ((currentStreak ~/ 5) * 3);
+  // Calcul du bonus : 5 de base + 3 appels supplémentaires tous les 5 jours de série
+  int get aiLimit => 5 + ((currentStreak ~/ 5) * 3);
+  int get deepSeekLimit => aiLimit;
 
   UsageTrackerService({required this.userId});
 
@@ -744,14 +831,21 @@ class UsageTrackerService {
   Future<int> getScanAnalysisCount() => getApiCallCount('scan_analysis_ia');
   Future<void> incrementScanAnalysis() => incrementApiCall('scan_analysis_ia');
 
-  Future<int> getDeepSeekApiCallCount() =>
-      getApiCallCount('deepseek_api_calls');
-  Future<void> incrementDeepSeekApiCall() =>
-      incrementApiCall('deepseek_api_calls');
+  Future<int> getAiApiCallCount() async {
+    final count = await getApiCallCount('ai_api_calls');
+    if (count == 0) {
+      return getApiCallCount('deepseek_api_calls');
+    }
+    return count;
+  }
+  Future<void> incrementAiApiCall() => incrementApiCall('ai_api_calls');
+
+  Future<int> getDeepSeekApiCallCount() => getAiApiCallCount();
+  Future<void> incrementDeepSeekApiCall() => incrementAiApiCall();
 }
 
 // =============================================================================
-// MODÃˆLES DE DONNÃ‰ES MIS Ã€ JOUR (avec fromFirestore et toFirestore)
+// MODÈLES DE DONNÉES MIS À JOUR (avec fromFirestore et toFirestore)
 // =============================================================================
 
 const uuid = Uuid();
@@ -762,11 +856,11 @@ extension MealTypeExtension on MealType {
   String toCapitalizedString() {
     switch (this) {
       case MealType.breakfast:
-        return 'Petit-dÃ©jeuner';
+        return 'Petit-déjeuner';
       case MealType.lunch:
-        return 'DÃ©jeuner';
+        return 'Déjeuner';
       case MealType.dinner:
-        return 'DÃ®ner';
+        return 'Dîner';
       case MealType.snack:
         return 'Collation';
       case MealType.unknown:
@@ -815,7 +909,7 @@ class FoodEntry {
 
   factory FoodEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       FoodEntry(
-        id: json['id'] ?? docId,
+        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
         name: json['name'],
         calories: json['calories'],
         proteins: (json['proteins'] as num).toDouble(),
@@ -864,7 +958,7 @@ class ScannedProduct {
     Map<String, dynamic> json,
     String docId,
   ) => ScannedProduct(
-    id: json['id'] ?? docId,
+    id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
     name: json['name'],
     barcode: json['barcode'],
     imageUrl: json['imageUrl'],
@@ -907,7 +1001,7 @@ class FastingSession {
     Map<String, dynamic> json,
     String docId,
   ) => FastingSession(
-    id: json['id'] ?? docId,
+    id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
     startTime: (json['startTime'] as Timestamp).toDate(),
     endTime: (json['endTime'] as Timestamp).toDate(),
     duration: Duration(seconds: json['durationSeconds']),
@@ -979,7 +1073,7 @@ class DailyGoal {
   Duration? targetFastingDuration;
   double? targetMuscleGain; // NOUVEAU: Objectif de prise de muscle en kg
   double?
-  weeklyEnergyExpenditureGoal; // NOUVEAU: DÃ©pense Ã©nergÃ©tique hebdomadaire
+  weeklyEnergyExpenditureGoal; // NOUVEAU: Dépense énergétique hebdomadaire
 
   DailyGoal({
     this.targetCalories = 2000,
@@ -1054,7 +1148,7 @@ class DailyGoal {
       );
 }
 
-// NOUVEAU: ModÃ¨le pour l'historique d'un objectif
+// NOUVEAU: Modèle pour l'historique d'un objectif
 enum GoalStatus { inProgress, achieved, failed }
 
 class GoalHistoryEntry {
@@ -1119,7 +1213,7 @@ class UserProfile {
   List<String> dietaryPreferences;
   List<String> healthConditions;
 
-  // MODIFIÃ‰: Anciens et nouveaux champs pour les habitudes de vie
+  // MODIFIÉ: Anciens et nouveaux champs pour les habitudes de vie
   int mealsPerDay;
   String dietQuality; // 'saine', 'moyenne', 'peu_saine'
   bool tendsToEatSugary;
@@ -1140,6 +1234,9 @@ class UserProfile {
   bool gymMode;
 
   List<GoalHistoryEntry> goalHistory;
+  String countryCode;
+  bool friendsRankingVisible;
+  bool worldRankingVisible;
 
   UserProfile({
     String? id,
@@ -1172,6 +1269,9 @@ class UserProfile {
     this.availableEquipment = const [],
     this.gymMode = false,
     this.goalHistory = const [],
+    this.countryCode = 'FR',
+    this.friendsRankingVisible = false,
+    this.worldRankingVisible = false,
   }) : id = id ?? uuid.v4();
 
   String get fullName => '${firstName ?? ''} ${lastName ?? ''}'.trim();
@@ -1194,13 +1294,13 @@ class UserProfile {
 
   String get bmiCategory {
     final imcValue = bmi;
-    if (imcValue <= 0) return "DonnÃ©es invalides";
+    if (imcValue <= 0) return "Données invalides";
     if (imcValue < 18.5) return "Maigreur";
     if (imcValue < 25) return "Poids normal";
     if (imcValue < 30) return "Surpoids";
-    if (imcValue < 35) return "ObÃ©sitÃ© modÃ©rÃ©e (Classe I)";
-    if (imcValue < 40) return "ObÃ©sitÃ© sÃ©vÃ¨re (Classe II)";
-    return "ObÃ©sitÃ© morbide (Classe III)";
+    if (imcValue < 35) return "Obésité modérée (Classe I)";
+    if (imcValue < 40) return "Obésité sévère (Classe II)";
+    return "Obésité morbide (Classe III)";
   }
 
   bool get isUnderweight => bmi < 18.5;
@@ -1247,6 +1347,9 @@ class UserProfile {
     List<String>? availableEquipment,
     bool? gymMode,
     List<GoalHistoryEntry>? goalHistory,
+    String? countryCode,
+    bool? friendsRankingVisible,
+    bool? worldRankingVisible,
   }) {
     return UserProfile(
       id: id,
@@ -1279,6 +1382,9 @@ class UserProfile {
       availableEquipment: availableEquipment ?? this.availableEquipment,
       gymMode: gymMode ?? this.gymMode,
       goalHistory: goalHistory ?? this.goalHistory,
+      countryCode: countryCode ?? this.countryCode,
+      friendsRankingVisible: friendsRankingVisible ?? this.friendsRankingVisible,
+      worldRankingVisible: worldRankingVisible ?? this.worldRankingVisible,
     );
   }
 
@@ -1311,6 +1417,10 @@ class UserProfile {
     'availableEquipment': availableEquipment,
     'gymMode': gymMode,
     'goalHistory': goalHistory.map((e) => e.toMap()).toList(),
+    'countryCode': countryCode,
+    'privacyFriends': friendsRankingVisible,
+    'privacyWorld': worldRankingVisible,
+    'displayName': fullName,
   };
 
   factory UserProfile.fromFirestore(Map<String, dynamic> json, String docId) =>
@@ -1348,6 +1458,9 @@ class UserProfile {
                 ?.map((e) => GoalHistoryEntry.fromMap(e))
                 .toList() ??
             [],
+        countryCode: json['countryCode'] ?? 'FR',
+        friendsRankingVisible: json['privacyFriends'] ?? false,
+        worldRankingVisible: json['privacyWorld'] ?? false,
       );
 }
 
@@ -1406,7 +1519,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
               (widget.userProfile.height / 100));
 
       if (currentBmi >= 30 && targetBmi < 25) {
-        // ObÃ©sitÃ© -> Normal
+        // Obésité -> Normal
         _recommendationMessage =
             "C'est un super objectif ! Pour y arriver plus sereinement, que diriez-vous de viser d'abord le seuil de surpoids (autour de ${widget.userProfile.maxNormalWeight.toStringAsFixed(1)} kg) ?";
       } else if (currentBmi >= 25 && targetBmi < 18.5) {
@@ -1429,10 +1542,10 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
       (g) => g.status == GoalStatus.achieved,
     );
     if (lastGoalIndex != -1) {
-      // L'ancien objectif est dÃ©jÃ  marquÃ© comme 'achieved', pas besoin de le modifier.
+      // L'ancien objectif est déjà marqué comme 'achieved', pas besoin de le modifier.
     }
 
-    // On crÃ©e le nouvel objectif
+    // On crée le nouvel objectif
     final newGoal = GoalHistoryEntry(
       goalType: _goalType,
       startWeight: widget.userProfile.weight,
@@ -1452,11 +1565,11 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
     try {
       await widget.firestoreService.updateUserProfile(updatedProfile);
       await widget.firestoreService.updateDailyGoals(updatedGoals);
-      widget.onGoalSet(); // RafraÃ®chit les donnÃ©es dans l'app
+      widget.onGoalSet(); // Rafraîchit les données dans l'app
       if (mounted) Navigator.pop(context);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Nouvel objectif dÃ©fini ! En route vers le succÃ¨s !"),
+          content: Text("Nouvel objectif défini ! En route vers le succès !"),
           backgroundColor: Colors.green,
         ),
       );
@@ -1470,7 +1583,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('DÃ©finir un nouvel objectif')),
+      appBar: AppBar(title: const Text('Définir un nouvel objectif')),
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -1479,7 +1592,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Text(
-                'FÃ©licitations pour votre progression ! Quel est votre prochain dÃ©fi ?',
+                'Félicitations pour votre progression ! Quel est votre prochain défi ?',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 textAlign: TextAlign.center,
               ),
@@ -1523,11 +1636,11 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
                   if (target == null) return 'Valeur invalide.';
                   if (_goalType == 'lose' &&
                       target >= widget.userProfile.weight) {
-                    return 'La cible doit Ãªtre infÃ©rieure Ã  votre poids actuel.';
+                    return 'La cible doit être inférieure à votre poids actuel.';
                   }
                   if (_goalType == 'gain' &&
                       target <= widget.userProfile.weight) {
-                    return 'La cible doit Ãªtre supÃ©rieure Ã  votre poids actuel.';
+                    return 'La cible doit être supérieure à votre poids actuel.';
                   }
                   return null;
                 },
@@ -1637,7 +1750,7 @@ class MealPlanEntry {
     Map<String, dynamic> json,
     String docId,
   ) => MealPlanEntry(
-    id: json['id'] ?? docId,
+    id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
     date: (json['date'] as Timestamp).toDate(),
     mealType: MealType.values.firstWhere(
       (e) => e.name == json['mealType'],
@@ -1695,7 +1808,7 @@ class ActivityEntry {
     Map<String, dynamic> json,
     String docId,
   ) => ActivityEntry(
-    id: json['id'] ?? docId,
+    id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
     description: json['description'],
     caloriesBurned: (json['caloriesBurned'] as num).toDouble(),
     duration: Duration(seconds: json['durationSeconds']),
@@ -1721,7 +1834,7 @@ class WeightEntry {
 
   factory WeightEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       WeightEntry(
-        id: json['id'] ?? docId,
+        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
         date: (json['date'] as Timestamp).toDate(),
         weight: (json['weight'] as num).toDouble(),
       );
@@ -1743,7 +1856,7 @@ class WaterEntry {
 
   factory WaterEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       WaterEntry(
-        id: json['id'] ?? docId,
+        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
         timestamp: (json['timestamp'] as Timestamp).toDate(),
         amount: (json['amount'] as num).toDouble(),
       );
@@ -1827,10 +1940,10 @@ class AuthWrapper extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.active) {
           final user = snapshot.data;
           if (user == null) {
-            // Si l'utilisateur n'est pas connectÃ©, il va Ã  l'Ã©cran de connexion/inscription.
+            // Si l'utilisateur n'est pas connecté, il va à l'écran de connexion/inscription.
             return const AuthScreen();
           } else {
-            // Si l'utilisateur est connectÃ©, il va DIRECTEMENT Ã  l'application.
+            // Si l'utilisateur est connecté, il va DIRECTEMENT à l'application.
             return ChangeNotifierProvider<AppStateProvider>(
               create:
                   (_) => AppStateProvider(FirestoreService(userId: user.uid)),
@@ -1858,11 +1971,11 @@ class _AuthScreenState extends State<AuthScreen> {
   String _email = '';
   String _password = '';
   String _errorMessage = '';
-  // SUPPRIMÃ‰: La variable _isLogin n'est plus nÃ©cessaire, cet Ã©cran ne gÃ¨re que la connexion.
+  // SUPPRIMÉ: La variable _isLogin n'est plus nécessaire, cet écran ne gère que la connexion.
   bool _isLoading = false;
 
-  // CORRECTION: La fonction ne gÃ¨re plus que la connexion.
-  // Dans main.dart, Ã  l'intÃ©rieur de class _AuthScreenState
+  // CORRECTION: La fonction ne gère plus que la connexion.
+  // Dans main.dart, à l'intérieur de class _AuthScreenState
 
   void _submitAuthForm() async {
     if (!_formKey.currentState!.validate()) {
@@ -1881,13 +1994,13 @@ class _AuthScreenState extends State<AuthScreen> {
         _password,
       );
 
-      // 2. Si Ã§a rÃ©ussit et que le widget est toujours affichÃ©
+      // 2. Si ça réussit et que le widget est toujours affiché
       if (userCredential != null && userCredential.user != null && mounted) {
         // IMPORTANT : On signale que l'onboarding est fini (pour les prochaines ouvertures d'app)
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('onboardingCompleted', true);
 
-        // 3. ON FORCE LA NAVIGATION vers l'Ã©cran principal
+        // 3. ON FORCE LA NAVIGATION vers l'écran principal
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
             builder:
@@ -1900,32 +2013,32 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
           ),
           (route) =>
-              false, // Ceci supprime tous les Ã©crans prÃ©cÃ©dents (login, onboarding) de l'historique
+              false, // Ceci supprime tous les écrans précédents (login, onboarding) de l'historique
         );
       }
     } on FirebaseAuthException catch (e) {
       String msg;
       switch (e.code) {
         case 'user-not-found':
-          msg = 'Aucun compte trouvÃ© pour cet email. VÃ©rifiez votre adresse.';
+          msg = 'Aucun compte trouvé pour cet email. Vérifiez votre adresse.';
           break;
         case 'wrong-password':
         case 'invalid-credential':
-          msg = 'Mot de passe incorrect. VÃ©rifiez vos identifiants.';
+          msg = 'Mot de passe incorrect. Vérifiez vos identifiants.';
           break;
         case 'invalid-email':
           msg = 'Adresse email invalide.';
           break;
         case 'user-disabled':
-          msg = 'Ce compte a Ã©tÃ© dÃ©sactivÃ©. Contactez le support.';
+          msg = 'Ce compte a été désactivé. Contactez le support.';
           break;
         case 'too-many-requests':
-          msg = 'Trop de tentatives. Veuillez rÃ©essayer dans quelques minutes.';
+          msg = 'Trop de tentatives. Veuillez réessayer dans quelques minutes.';
           break;
         default:
           msg =
               e.message ??
-              'Une erreur est survenue. VÃ©rifiez vos identifiants.';
+              'Une erreur est survenue. Vérifiez vos identifiants.';
       }
       setState(() {
         _errorMessage = msg;
@@ -1977,7 +2090,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    // Les champs prÃ©nom/nom ont dÃ©jÃ  Ã©tÃ© retirÃ©s, ce qui est correct.
+                    // Les champs prénom/nom ont déjà été retirés, ce qui est correct.
                     TextFormField(
                       key: const ValueKey('email'),
                       keyboardType: TextInputType.emailAddress,
@@ -2013,7 +2126,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.length < 6) {
-                          return 'Le mot de passe doit contenir au moins 6 caractÃ¨res.';
+                          return 'Le mot de passe doit contenir au moins 6 caractères.';
                         }
                         return null;
                       },
@@ -2090,6 +2203,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   late FirestoreService _firestoreService;
   late SubscriptionService _subscriptionService;
   late UsageTrackerService _usageTrackerService;
+  late BadgeService _badgeService;
+  late SocialService _socialService;
+  late RankingService _rankingService;
 
   // Global state for the app (fetched from Firebase)
   List<FoodEntry> _allFoodEntries = [];
@@ -2103,11 +2219,12 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   UserProfile? _userProfile; // NEW: User Profile
   bool _isPremium = false; // Subscription status
   int _currentStreak = 0;
+  int _currentSteps = 0;
 
   // NOUVEAU: Liste dynamique des onglets
   List<UserTab> _userTabs = [];
 
-  // Map des builders disponibles (pour recrÃ©er les onglets Ã  partir de Firestore)
+  // Map des builders disponibles (pour recréer les onglets à partir de Firestore)
   late Map<String, WidgetBuilder> _availableTabBuilders;
 
   @override
@@ -2116,6 +2233,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     _firestoreService = FirestoreService(userId: widget.userId);
     _subscriptionService = SubscriptionService(userId: widget.userId);
     _usageTrackerService = UsageTrackerService(userId: widget.userId);
+    _badgeService = BadgeService(userId: widget.userId);
+    _socialService = SocialService(
+      userId: widget.userId,
+      notificationService: SL.notificationService,
+      memoryService: SL.memoryService,
+    );
+    _rankingService = RankingService(userId: widget.userId);
 
     _initializeAppData();
 
@@ -2129,7 +2253,28 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     });
   }
 
-  // --- Gestionnaires d'Ã©tat pour les listes (avec Firebase) ---
+  Future<void> _checkBadges() async {
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('evaluateAndAwardBadges');
+      final result = await callable.call();
+      
+      if (result.data['success'] == true) {
+        final awarded = List<String>.from(result.data['awarded'] ?? []);
+        if (awarded.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('🏆 Nouveaux badges débloqués : ${awarded.join(", ")} !'),
+              backgroundColor: Colors.amber.shade700,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Erreur évaluation badges: $e');
+    }
+  }
+
+  // --- Gestionnaires d'état pour les listes (avec Firebase) ---
   Future<void> _addFoodEntry(FoodEntry entry) async {
     await _firestoreService.addDocument(
       'foodEntries',
@@ -2138,13 +2283,14 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     );
     await _loadFoodEntries(); // Reload data
 
-    // NOUVEAU : Analyse "Juste-Ã -Temps" par l'IA locale
+    // NOUVEAU : Analyse "Juste-à-Temps" par l'IA locale
     await SL.expertSystem.analyzeMealForSpike(entry.carbs);
     await SL.habitService.recordMealTime(entry.name, DateTime.now());
+    await _checkBadges();
 
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('"${entry.name}" ajoutÃ© au suivi.'),
+        content: Text('"${entry.name}" ajouté au suivi.'),
         backgroundColor: Colors.green,
       ),
     );
@@ -2160,7 +2306,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadFoodEntries();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Aliment supprimÃ©."),
+        content: Text("Aliment supprimé."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2173,9 +2319,10 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (s) => s.toFirestore(),
     );
     await _loadFastingSessions();
+    await _checkBadges();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Session de jeÃ»ne enregistrÃ©e !"),
+        content: Text("Session de jeûne enregistrée !"),
         backgroundColor: Colors.green,
       ),
     );
@@ -2191,7 +2338,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadFastingSessions();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Session de jeÃ»ne supprimÃ©e."),
+        content: Text("Session de jeûne supprimée."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2204,9 +2351,10 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (p) => p.toFirestore(),
     );
     await _loadScannedProducts();
+    await _checkBadges();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('"${product.name}" ajoutÃ© Ã  l\'historique des scans.'),
+        content: Text('"${product.name}" ajouté à l\'historique des scans.'),
         backgroundColor: Colors.blue,
       ),
     );
@@ -2222,7 +2370,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadScannedProducts();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Produit scannÃ© supprimÃ©."),
+        content: Text("Produit scanné supprimé."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2247,7 +2395,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadMealPlans();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Repas planifiÃ© supprimÃ©."),
+        content: Text("Repas planifié supprimé."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2262,43 +2410,37 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadActivities();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('ActivitÃ© "${entry.description}" ajoutÃ©e.'),
+        content: Text('Activité "${entry.description}" ajoutée.'),
         backgroundColor: Colors.green,
       ),
     );
   }
 
   Future<void> _updateAndGetStreak() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? lastLoginStr = prefs.getString('lastLoginDate');
-    int streak = prefs.getInt('loginStreak') ?? 0;
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-    if (lastLoginStr != null) {
-      final lastLogin = DateTime.parse(lastLoginStr);
-      final difference = today.difference(lastLogin).inDays;
-
-      if (difference == 1) {
-        streak += 1; // Jour consÃ©cutif
-      } else if (difference > 1) {
-        streak = 1; // SÃ©rie brisÃ©e, on rÃ©initialise Ã  1
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable('updateUserStreak');
+      final result = await callable.call();
+      
+      final int newStreak = (result.data['streak'] as num?)?.toInt() ?? 0;
+      
+      if (mounted) {
+        setState(() {
+          _currentStreak = newStreak;
+        });
       }
-      // Si difference == 0, l'utilisateur s'est dÃ©jÃ  connectÃ© aujourd'hui, on ne change rien.
-    } else {
-      streak = 1; // PremiÃ¨re connexion
+      _usageTrackerService.currentStreak = newStreak;
+      
+      // Mise à jour locale pour cohérence immédiate de l'UI
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('loginStreak', newStreak);
+      await prefs.setString('lastLoginDate', DateTime.now().toIso8601String().split('T')[0]);
+      
+    } catch (e) {
+      debugPrint('Erreur mise à jour série sécurisée: $e');
     }
-
-    await prefs.setString('lastLoginDate', today.toIso8601String());
-    await prefs.setInt('loginStreak', streak);
-
-    if (mounted) {
-      setState(() {
-        _currentStreak = streak;
-      });
-    }
-
-    _usageTrackerService.currentStreak = streak;
   }
 
   Future<void> _syncHealthData() async {
@@ -2307,6 +2449,11 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       if (!hasPermissions) return;
 
       final steps = await SL.activityService.getTodaySteps();
+      if (mounted) {
+        setState(() {
+          _currentSteps = steps;
+        });
+      }
       if (steps <= 0) return;
 
       final bool stepEntryExists = _allActivities.any(
@@ -2342,7 +2489,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadActivities();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("ActivitÃ© supprimÃ©e."),
+        content: Text("Activité supprimée."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2369,20 +2516,20 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     }
     await _loadWeightEntries();
 
-    // NOUVEAU: Appel Ã  la vÃ©rification d'objectif aprÃ¨s l'enregistrement
+    // NOUVEAU: Appel à la vérification d'objectif après l'enregistrement
     _checkGoalAchievement(entry.weight);
 
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistrÃ©.',
+          'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistré.',
         ),
         backgroundColor: Colors.green,
       ),
     );
   }
 
-  // AJOUTEZ ces nouvelles mÃ©thodes dans la classe _MyAppTabsWrapperState
+  // AJOUTEZ ces nouvelles méthodes dans la classe _MyAppTabsWrapperState
   void _checkGoalAchievement(double newWeight) {
     if (_userProfile == null) return;
 
@@ -2421,7 +2568,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         );
 
         _firestoreService.updateUserProfile(updatedProfile).then((_) {
-          _loadUserProfile(); // Recharger le profil pour que l'UI soit Ã  jour
+          _loadUserProfile(); // Recharger le profil pour que l'UI soit à jour
           _showGoalAchievedDialog();
         });
       }
@@ -2437,9 +2584,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       barrierDismissible: false,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('ðŸŽ‰ FÃ©licitations ! ðŸŽ‰'),
+            title: const Text('🎉 Félicitations ! 🎉'),
             content: const Text(
-              'Vous avez atteint votre objectif. Continuez sur cette lancÃ©e !',
+              'Vous avez atteint votre objectif. Continuez sur cette lancée !',
             ),
             actions: [
               ElevatedButton(
@@ -2457,7 +2604,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   void _proposeNewGoal() {
     if (!mounted || _userProfile == null) return;
 
-    // Affiche le nouvel Ã©cran minimaliste au lieu de l'Ã©cran de profil complet
+    // Affiche le nouvel écran minimaliste au lieu de l'écran de profil complet
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -2467,7 +2614,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               currentGoals: _currentGoals,
               firestoreService: _firestoreService,
               onGoalSet:
-                  _onUserProfileUpdated, // La fonction de rafraÃ®chissement est passÃ©e en callback
+                  _onUserProfileUpdated, // La fonction de rafraîchissement est passée en callback
             ),
       ),
     );
@@ -2483,7 +2630,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadWeightEntries();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text("Poids supprimÃ©."),
+        content: Text("Poids supprimé."),
         backgroundColor: Colors.red,
       ),
     );
@@ -2498,7 +2645,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await _loadWaterEntries();
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutÃ©s.'),
+        content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutés.'),
         backgroundColor: Colors.lightBlue,
       ),
     );
@@ -2513,7 +2660,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
 
     if (scannedBarcodes == null || scannedBarcodes.isEmpty) return;
 
-    // 2. Si un seul produit a Ã©tÃ© scannÃ©, comportement classique
+    // 2. Si un seul produit a été scanné, comportement classique
     if (scannedBarcodes.length == 1) {
       bool canScan = _isPremium;
       if (!canScan) {
@@ -2551,16 +2698,16 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            "Traitement de ${scannedBarcodes.length} produits en arriÃ¨re-plan...",
+            "Traitement de ${scannedBarcodes.length} produits en arrière-plan...",
           ),
           backgroundColor: Colors.teal,
         ),
       );
-      // Ici, tu pourras plus tard boucler sur scannedBarcodes pour les ajouter Ã  un inventaire.
+      // Ici, tu pourras plus tard boucler sur scannedBarcodes pour les ajouter à un inventaire.
     }
   }
 
-  // --- Fonctions de chargement des donnÃ©es depuis Firestore ---
+  // --- Fonctions de chargement des données depuis Firestore ---
   DateTime _selectedFoodMonth = DateTime.now();
 
   Future<void> _loadFoodEntries() async {
@@ -2658,7 +2805,114 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     }
   }
 
-  // NOUVEAU: Initialisation des onglets par dÃ©faut
+  /// Publie les statistiques complètes de progression pour les classements
+  Future<void> _publishRankingStats() async {
+    try {
+      final badges = await _badgeService.getUserBadges();
+      final badgesUnlocked = badges.where((b) => b.isUnlocked).length;
+
+      double goalProgress = 0;
+      double weightDelta = 0;
+      double currentWeight = _userProfile?.weight ?? 70.0;
+      String goalType = _currentGoals.weightGoalType;
+
+      if (_userProfile != null) {
+        final goal = _userProfile!.goalHistory
+            .firstWhereOrNull((g) => g.status == GoalStatus.inProgress);
+        if (goal != null) {
+          goalType = goal.goalType;
+          if (_allWeightEntries.isNotEmpty) {
+            final sortedWeights = List<WeightEntry>.from(_allWeightEntries)
+              ..sort((a, b) => a.date.compareTo(b.date));
+            currentWeight = sortedWeights.last.weight;
+          }
+          weightDelta = currentWeight - goal.startWeight;
+
+          if (goal.goalType == 'lose' && goal.startWeight > goal.targetWeight) {
+            goalProgress = ((goal.startWeight - currentWeight) /
+                    (goal.startWeight - goal.targetWeight) *
+                    100)
+                .clamp(0, 100)
+                .toDouble();
+          } else if (goal.goalType == 'gain' && goal.targetWeight > goal.startWeight) {
+            goalProgress = ((currentWeight - goal.startWeight) /
+                    (goal.targetWeight - goal.startWeight) *
+                    100)
+                .clamp(0, 100)
+                .toDouble();
+          } else if (goal.goalType == 'maintain') {
+            goalProgress = (100 - ((currentWeight - goal.targetWeight).abs() * 10))
+                .clamp(0, 100)
+                .toDouble();
+          }
+        }
+      }
+
+      final now = DateTime.now();
+      final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+      final weeklyKcal = _allActivities
+          .where((a) => a.timestamp.isAfter(startOfWeek))
+          .fold(0.0, (s, a) => s + a.caloriesBurned);
+
+      // Calcul des données d'adhérence & engagement
+      double waterAdherence = _currentGoals.targetWater > 0
+          ? ((_allWaterEntries
+                      .where((w) =>
+                          w.timestamp.year == now.year &&
+                          w.timestamp.month == now.month &&
+                          w.timestamp.day == now.day)
+                      .fold(0.0, (s, w) => s + w.amount) /
+                  _currentGoals.targetWater) *
+              100)
+              .clamp(0, 100)
+              .toDouble()
+          : 0;
+
+      final todayFood = _allFoodEntries.where((f) =>
+          f.timestamp.year == now.year &&
+          f.timestamp.month == now.month &&
+          f.timestamp.day == now.day);
+      double todayCalories = todayFood.fold(0.0, (s, f) => s + f.calories);
+      double nutritionAdherence = _currentGoals.targetCalories > 0
+          ? (100 - ((todayCalories - _currentGoals.targetCalories).abs() / _currentGoals.targetCalories * 100))
+              .clamp(0, 100)
+              .toDouble()
+          : 50;
+
+      final fallbackName =
+          FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 'NutriZen User';
+
+      final input = UserStatsInput(
+        displayName: (_userProfile?.fullName.isNotEmpty == true)
+            ? _userProfile!.fullName
+            : fallbackName,
+        countryCode: _userProfile?.countryCode ?? 'FR',
+        nutritionAdherence: nutritionAdherence,
+        mealsLogged: todayFood.length,
+        waterAdherence: waterAdherence,
+        weeklyKcal: weeklyKcal,
+        steps: _currentSteps,
+        workoutsCount: _allActivities.where((a) => a.timestamp.isAfter(startOfWeek)).length,
+        fastingSessions: _allFastingSessions.length,
+        fastingAdherence: 80.0,
+        goalProgress: goalProgress,
+        goalType: goalType,
+        weightDelta: weightDelta,
+        currentWeight: currentWeight,
+        streak: _currentStreak,
+        badgesUnlocked: badgesUnlocked,
+        aiAnalyses: _mealPlans.length,
+        scansCount: _allScannedProducts.length,
+        ecoScore: 60.0,
+      );
+
+      await _rankingService.publishMyStats(input);
+    } catch (e) {
+      debugPrint('Erreur publication stats classement: $e');
+    }
+  }
+
+  // NOUVEAU: Initialisation des onglets par défaut
   List<UserTab> _getDefaultTabs() {
     return [
       UserTab(
@@ -2714,7 +2968,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'fasting',
-        title: 'JeÃ»ne',
+        title: 'Jeûne',
         icon: Icons.watch_later_outlined,
         builder:
             (context) =>
@@ -2732,7 +2986,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'activities',
-        title: 'ActivitÃ©s',
+        title: 'Activités',
         icon: Icons.fitness_center,
         builder:
             (context) => ActivitiesTab(
@@ -2747,7 +3001,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       ),
       UserTab(
         id: 'evolution',
-        title: 'Ã‰volution',
+        title: 'Évolution',
         icon: Icons.show_chart,
         builder:
             (context) => EvolutionTab(
@@ -2757,7 +3011,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               currentGoals: _currentGoals,
               isPremiumUser: _isPremium,
               usageTrackerService: _usageTrackerService,
-              // PARAMÃˆTRES CORRIGÃ‰S
+              // PARAMÈTRES CORRIGÉS
               userProfile: _userProfile,
               allFoodEntries: _allFoodEntries,
             ),
@@ -2803,11 +3057,44 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               usageTrackerService: _usageTrackerService,
             ),
       ),
+      UserTab(
+        id: 'social',
+        title: 'Social & Défis',
+        icon: Icons.groups,
+        builder:
+            (context) => SocialTab(
+              socialService: _socialService,
+              rankingService: _rankingService,
+              myUid: widget.userId,
+              myCountryCode: _userProfile?.countryCode ?? 'FR',
+              friendsRankingVisible: _userProfile?.friendsRankingVisible ?? false,
+              worldRankingVisible: _userProfile?.worldRankingVisible ?? false,
+              onRankingVisibilityChanged: (friends, world) async {
+                if (_userProfile == null) return;
+                final updated = _userProfile!.copyWith(
+                  friendsRankingVisible: friends,
+                  worldRankingVisible: world,
+                );
+                if (mounted) setState(() => _userProfile = updated);
+                await _firestoreService.updateUserProfile(updated);
+              },
+              onPublishRankingStats: _publishRankingStats,
+              userCurrentSteps: _currentSteps.toDouble(),
+              userTargetSteps: _userProfile?.activityLevel == 'very_active' ? 12000.0 : 10000.0,
+              userCaloriesBurned: _allActivities.fold(0.0, (s, a) => s + a.caloriesBurned),
+              userWeight: _userProfile?.weight ?? 70.0,
+            ),
+      ),
     ];
   }
 
   Future<void> _initializeAppData() async {
     if (!_tabsLoading && _tabsInitialized) return;
+
+    // --- NOUVEAU : Mise à jour de lastActive pour le social ---
+    await FirebaseFirestore.instance.collection('users').doc(widget.userId).set({
+      'lastActive': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
 
     await _loadUserProfile();
 
@@ -2884,7 +3171,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             currentGoals: _currentGoals,
             isPremiumUser: _isPremium,
             usageTrackerService: _usageTrackerService,
-            // PARAMÃˆTRES CORRIGÃ‰S
+            // PARAMÈTRES CORRIGÉS
             userProfile: _userProfile,
             allFoodEntries: _allFoodEntries,
           ),
@@ -2914,6 +3201,29 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             subscriptionService: _subscriptionService,
             usageTrackerService: _usageTrackerService,
           ),
+      'social':
+          (context) => SocialTab(
+            socialService: _socialService,
+            rankingService: _rankingService,
+            myUid: widget.userId,
+            myCountryCode: _userProfile?.countryCode ?? 'FR',
+            friendsRankingVisible: _userProfile?.friendsRankingVisible ?? false,
+            worldRankingVisible: _userProfile?.worldRankingVisible ?? false,
+            onRankingVisibilityChanged: (friends, world) async {
+              if (_userProfile == null) return;
+              final updated = _userProfile!.copyWith(
+                friendsRankingVisible: friends,
+                worldRankingVisible: world,
+              );
+              if (mounted) setState(() => _userProfile = updated);
+              await _firestoreService.updateUserProfile(updated);
+            },
+            onPublishRankingStats: _publishRankingStats,
+            userCurrentSteps: _currentSteps.toDouble(),
+            userTargetSteps: _userProfile?.activityLevel == 'very_active' ? 12000.0 : 10000.0,
+            userCaloriesBurned: _allActivities.fold(0.0, (s, a) => s + a.caloriesBurned),
+            userWeight: _userProfile?.weight ?? 70.0,
+          ),
     };
 
     await Future.wait([
@@ -2931,6 +3241,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
 
     await _updateAndGetStreak();
     await _syncHealthData();
+    await _publishRankingStats();
     _recreateTabController();
 
     if (mounted) {
@@ -3047,13 +3358,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
-          title: const Text('ThÃ¨me de l\'application'),
+          title: const Text('Thème de l\'application'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
                 leading: const Icon(Icons.brightness_auto),
-                title: const Text('SystÃ¨me'),
+                title: const Text('Système'),
                 onTap: () async {
                   appThemeNotifier.value = ThemeMode.system;
                   final prefs = await SharedPreferences.getInstance();
@@ -3101,9 +3412,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           (ctx) => AlertDialog(
             title: Row(
               children: [
-                const Text('ðŸ”¥ '),
+                const Text('🔥 '),
                 Text(
-                  'SÃ©rie Actuelle : $_currentStreak j',
+                  'Série Actuelle : $_currentStreak j',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ],
@@ -3113,7 +3424,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  "Maintenez votre sÃ©rie en vous connectant chaque jour pour gagner des rÃ©compenses !",
+                  "Maintenez votre série en vous connectant chaque jour pour gagner des récompenses !",
                 ),
                 const SizedBox(height: 16),
                 _buildRewardItem(
@@ -3187,7 +3498,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // Mettre Ã  jour le streak dans le tracker d'usage
+    // Mettre à jour le streak dans le tracker d'usage
     _usageTrackerService.currentStreak = _currentStreak;
 
     final List<UserTab> visibleTabs =
@@ -3253,7 +3564,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           child: Padding(
             padding: EdgeInsets.all(20.0),
             child: Text(
-              "Aucun onglet visible. Veuillez gÃ©rer vos onglets via le menu en haut Ã  droite pour les afficher.",
+              "Aucun onglet visible. Veuillez gérer vos onglets via le menu en haut à droite pour les afficher.",
               style: TextStyle(fontSize: 18, color: Colors.grey),
               textAlign: TextAlign.center,
             ),
@@ -3307,14 +3618,19 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Text('ðŸ”¥', style: TextStyle(fontSize: 16)),
+                        const Text('🔥', style: TextStyle(fontSize: 16)),
                         const SizedBox(width: 4),
-                        Text(
-                          '$_currentStreak j',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.primary,
+                        Flexible(
+                          child: Text(
+                            '$_currentStreak j',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Theme.of(context).colorScheme.primary,
+                              fontSize: 14,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                         ),
                       ],
@@ -3322,6 +3638,18 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
                   ),
                 ),
               ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.military_tech),
+              tooltip: 'Mes Badges',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => BadgesScreen(badgeService: _badgeService),
+                  ),
+                );
+              },
             ),
             IconButton(
               icon: const Icon(Icons.brightness_6),
@@ -3429,7 +3757,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
         _currentTabs.where((tab) => !tab.isVisible).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('GÃ©rer les Onglets')),
+      appBar: AppBar(title: const Text('Gérer les Onglets')),
       body: Column(
         children: [
           Expanded(
@@ -3440,7 +3768,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
               header: Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: Text(
-                  'Onglets Visibles (maintenez et glissez pour rÃ©organiser)',
+                  'Onglets Visibles (maintenez et glissez pour réorganiser)',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
               ),
@@ -3471,7 +3799,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
               vertical: 8.0,
             ),
             child: Text(
-              'Onglets CachÃ©s (cochez pour rendre visible)',
+              'Onglets Cachés (cochez pour rendre visible)',
               style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
@@ -3492,7 +3820,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
                     },
                     secondary: Icon(tab.icon),
                     title: Text(tab.title),
-                    subtitle: const Text('CachÃ©'),
+                    subtitle: const Text('Caché'),
                     controlAffinity: ListTileControlAffinity.leading,
                   ),
                 );
@@ -3517,7 +3845,7 @@ class _TabManagementScreenState extends State<TabManagementScreen> {
 // Onglet Tableau de Bord (DashboardTab)
 // =============================================================================
 // =============================================================================
-// Onglet Tableau de Bord (DashboardTab) - VERSION COMPLÃˆTE RÃ‰Ã‰CRITE
+// Onglet Tableau de Bord (DashboardTab) - VERSION COMPLÈTE RÉÉCRITE
 // =============================================================================
 class DashboardTab extends StatefulWidget {
   final List<FoodEntry> allFoodEntries;
@@ -3565,11 +3893,11 @@ class _DashboardTabState extends State<DashboardTab> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
 
-  // NOUVEAU: Ã‰tats pour l'analyse IA Globale
+  // NOUVEAU: États pour l'analyse IA Globale
   bool _isAnalyzingGlobal = false;
   Map<String, dynamic>? _globalAiAnalysisResult;
 
-  // NOUVEAU: Ã‰tats pour le dÃ©fi du jour par l'IA
+  // NOUVEAU: États pour le défi du jour par l'IA
   bool _isLoadingDailyChallenge = false;
   Map<String, dynamic>? _dailyChallengeResult;
   bool _isDailyChallengeCompleted = false;
@@ -3579,6 +3907,12 @@ class _DashboardTabState extends State<DashboardTab> {
     super.initState();
     _selectedDay = _focusedDay;
     _loadDailyChallengeState();
+
+    // 🚀 BRANCHEMENT SYSTÈME EXPERT (Prévention comportementale)
+    SL.expertSystem.predictiveCravingSupport();
+    SL.expertSystem.evaluateBehavioralRisk(
+      sleepHours: widget.userProfile?.sleepHours ?? 7,
+    );
   }
 
   Future<void> _loadDailyChallengeState() async {
@@ -3693,7 +4027,7 @@ class _DashboardTabState extends State<DashboardTab> {
   // NOUVEAU: Logique pour estimer le temps avant d'atteindre l'objectif de poids
   String _getGoalTimeProjection() {
     if (widget.allWeightEntries.length < 2 || widget.userProfile == null) {
-      return 'DonnÃ©es insuffisantes.';
+      return 'Données insuffisantes.';
     }
 
     final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
@@ -3701,7 +4035,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final currentWeight = sortedEntries.last.weight;
     final goalType = widget.currentGoals.weightGoalType;
 
-    // Calcul du rythme de progression rÃ©el basÃ© sur les 2 derniÃ¨res semaines
+    // Calcul du rythme de progression réel basé sur les 2 dernières semaines
     double weeklyChangeRate = 0;
     final twoWeeksAgo = DateTime.now().subtract(const Duration(days: 14));
     final entryTwoWeeksAgo = sortedEntries.lastWhereOrNull(
@@ -3716,7 +4050,7 @@ class _DashboardTabState extends State<DashboardTab> {
       }
     }
 
-    // Si pas de changement rÃ©cent, on prend une valeur saine par dÃ©faut pour la projection
+    // Si pas de changement récent, on prend une valeur saine par défaut pour la projection
     if (weeklyChangeRate == 0) {
       weeklyChangeRate =
           goalType == 'lose' ? -0.5 : (goalType == 'gain' ? 0.2 : 0);
@@ -3742,7 +4076,7 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  // NOUVEAU: Logique pour la dÃ©pense Ã©nergÃ©tique hebdomadaire
+  // NOUVEAU: Logique pour la dépense énergétique hebdomadaire
   Map<String, double> _getWeeklyEnergyExpenditure() {
     final now = DateTime.now();
     // Assure que le Lundi est bien le premier jour de la semaine
@@ -3881,7 +4215,7 @@ class _DashboardTabState extends State<DashboardTab> {
   }
 
   Map<String, dynamic> _getAILifestyleScore() {
-    // Si une vÃ©ritable analyse IA globale est disponible, on l'utilise
+    // Si une véritable analyse IA globale est disponible, on l'utilise
     if (_globalAiAnalysisResult != null) {
       return {
         'hasData': true,
@@ -3889,7 +4223,7 @@ class _DashboardTabState extends State<DashboardTab> {
             _globalAiAnalysisResult!['score'] ??
             _calculateManualLifestyleScore(),
         'comment': _globalAiAnalysisResult!['comment'] ?? "Aucun commentaire.",
-        'reliability': '95', // L'IA DeepSeek est trÃ¨s fiable
+        'reliability': '95', // L'IA DeepSeek est très fiable
         'isRealAI': true,
       };
     }
@@ -3899,32 +4233,32 @@ class _DashboardTabState extends State<DashboardTab> {
       return {
         'hasData': false,
         'score': 0,
-        'comment': 'Ajoutez des donnÃ©es pour obtenir une analyse.',
+        'comment': 'Ajoutez des données pour obtenir une analyse.',
         'reliability': '0',
         'isRealAI': false,
       };
     }
 
-    // Affichage d'un conseil gÃ©nÃ©rique en attendant la vraie IA
+    // Affichage d'un conseil générique en attendant la vraie IA
     String genericComment;
     if (manualScore > 80) {
       genericComment =
-          "Excellent ! Vos indicateurs rÃ©cents sont trÃ¨s positifs.";
+          "Excellent ! Vos indicateurs récents sont très positifs.";
     } else if (manualScore > 60)
       genericComment =
           "Bon niveau. Quelques ajustements pourraient vous faire progresser.";
     else if (manualScore > 40)
       genericComment =
-          "Niveau moyen. Essayez d'amÃ©liorer votre alimentation ou activitÃ©.";
+          "Niveau moyen. Essayez d'améliorer votre alimentation ou activité.";
     else
       genericComment =
-          "Attention, vos donnÃ©es indiquent qu'un meilleur suivi serait bÃ©nÃ©fique.";
+          "Attention, vos données indiquent qu'un meilleur suivi serait bénéfique.";
 
     return {
       'hasData': true,
       'score': manualScore,
       'comment': genericComment,
-      'reliability': 'BasÃ©e sur un calcul basique.',
+      'reliability': 'Basée sur un calcul basique.',
       'isRealAI': false,
     };
   }
@@ -3935,7 +4269,7 @@ class _DashboardTabState extends State<DashboardTab> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Oups, veuillez ajouter quelques donnÃ©es (repas, eau, etc.) avant de lancer l'analyse IA.",
+            "Oups, veuillez ajouter quelques données (repas, eau, etc.) avant de lancer l'analyse IA.",
           ),
         ),
       );
@@ -3944,8 +4278,8 @@ class _DashboardTabState extends State<DashboardTab> {
 
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -3966,10 +4300,10 @@ class _DashboardTabState extends State<DashboardTab> {
       final profileStr =
           info != null
               ? "${info.age} ans, ${info.gender}, ${info.weight}kg pour ${info.height}cm."
-              : "Profil non renseignÃ©.";
+              : "Profil non renseigné.";
       final goalStr = widget.currentGoals.weightGoalType;
 
-      // Extraction de toutes les donnÃ©es du jour pour les envoyer Ã  l'IA
+      // Extraction de toutes les données du jour pour les envoyer à l'IA
       final dailyNutritionSummary = _getDailyNutritionSummary(
         _selectedDay ?? DateTime.now(),
       );
@@ -3988,27 +4322,27 @@ class _DashboardTabState extends State<DashboardTab> {
           );
       final String fastingStateStr =
           activeFastingSession != null
-              ? "En cours jusqu'Ã  \${DateFormat('HH:mm').format(activeFastingSession.endTime)}"
-              : "Aucun jeÃ»ne en cours";
+              ? "En cours jusqu'à \${DateFormat('HH:mm').format(activeFastingSession.endTime)}"
+              : "Aucun jeûne en cours";
 
       final String prompt = '''
-      Tu es l'IA globale de l'application de santÃ©. Tu croises toutes les donnÃ©es de l'utilisateur pour lui fournir un bilan quotidien pointu.
+      Tu es l'IA globale de l'application de santé. Tu croises toutes les données de l'utilisateur pour lui fournir un bilan quotidien pointu.
       
       PROFIL: $profileStr
-      OBJECTIF ACTUEL: $goalStr (Calories visÃ©es: ${widget.currentGoals.targetCalories} kcal)
+      OBJECTIF ACTUEL: $goalStr (Calories visées: ${widget.currentGoals.targetCalories} kcal)
       
       BILAN DU JOUR (CROSS-ONGLETS) :
-      - Nutrition : ${dailyNutritionSummary['calories']?.toInt()} kcal consommÃ©es (ProtÃ©ines: ${dailyNutritionSummary['proteins']?.toInt()}g, Glucides: ${dailyNutritionSummary['carbs']?.toInt()}g, Lipides: ${dailyNutritionSummary['fats']?.toInt()}g)
+      - Nutrition : ${dailyNutritionSummary['calories']?.toInt()} kcal consommées (Protéines: ${dailyNutritionSummary['proteins']?.toInt()}g, Glucides: ${dailyNutritionSummary['carbs']?.toInt()}g, Lipides: ${dailyNutritionSummary['fats']?.toInt()}g)
       - Eau bue : $dailyWaterActivity Litres sur un objectif de ${widget.currentGoals.targetWater}L
-      - Sport/ActivitÃ© : $caloriesBurned kcal brÃ»lÃ©es
-      - JeÃ»ne : $fastingStateStr
+      - Sport/Activité : $caloriesBurned kcal brûlées
+      - Jeûne : $fastingStateStr
       
       CONSIGNES:
-      - Mets en lien ses repas avec ses dÃ©penses sportives, sa consommation d'eau, son jeÃ»ne Ã©ventuel, et l'objectif visÃ©.
-      - Ã‰value la synergie entre tous ces domaines (les onglets de l'application) et l'objectif visÃ©.
-      - Propose une action concrÃ¨te Ã  faire pour optimiser demain (ex: "prÃ©vois un jeÃ»ne plus court si tu as beaucoup de sport de prÃ©vu", "bois un peu plus d'eau pour compenser tes efforts", etc).
-      - Donne une note globale sur 100 de son style de vie aujourd'hui en Ã©tant strict mais juste.
-      - Sois encourageant et prÃ©cis.
+      - Mets en lien ses repas avec ses dépenses sportives, sa consommation d'eau, son jeûne éventuel, et l'objectif visé.
+      - Évalue la synergie entre tous ces domaines (les onglets de l'application) et l'objectif visé.
+      - Propose une action concrète à faire pour optimiser demain (ex: "prévois un jeûne plus court si tu as beaucoup de sport de prévu", "bois un peu plus d'eau pour compenser tes efforts", etc).
+      - Donne une note globale sur 100 de son style de vie aujourd'hui en étant strict mais juste.
+      - Sois encourageant et précis.
       
       Retourne un JSON strict comme ceci:
       {
@@ -4023,17 +4357,16 @@ class _DashboardTabState extends State<DashboardTab> {
       );
 
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
         setState(() {
           _globalAiAnalysisResult = result;
         });
       } else {
-        throw Exception('RÃ©ponse IA vide');
+        throw Exception('Réponse IA vide');
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Oups, l'IA a rencontrÃ© une erreur: $e"),
+          content: Text("Oups, l'IA a rencontré une erreur: $e"),
           backgroundColor: Colors.red,
         ),
       );
@@ -4042,12 +4375,12 @@ class _DashboardTabState extends State<DashboardTab> {
     }
   }
 
-  // NOUVELLE FONCTIONNALITÃ‰: GÃ©nÃ©ration du dÃ©fi quotidien par l'IA
+  // NOUVELLE FONCTIONNALITÉ: Génération du défi quotidien par l'IA
   Future<void> _generateDailyChallengeWithAI() async {
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
@@ -4067,16 +4400,16 @@ class _DashboardTabState extends State<DashboardTab> {
       final goalStr = widget.currentGoals.weightGoalType;
 
       final String prompt = '''
-      Tu es un coach sportif et bien-Ãªtre ultra-motivant et crÃ©atif.
+      Tu es un coach sportif et bien-être ultra-motivant et créatif.
       Profil : $profileStr, Objectif : $goalStr.
       
-      Propose un PETIT DÃ‰FI UNIQUE, inattendu et faisable aujourd'hui en moins de 5 minutes.
-      Exemples: "Faire 15 squats avant le dÃ©jeuner", "Boire 1 grand verre d'eau au rÃ©veil", "Faire 3 minutes d'Ã©tirement en respirant profondÃ©ment", "Remplacer sa collation par un fruit".
-      Ne donne qu'un seul dÃ©fi, simple Ã  actionner pour donner un sentiment d'accomplissement (gamification).
+      Propose un PETIT DÉFI UNIQUE, inattendu et faisable aujourd'hui en moins de 5 minutes.
+      Exemples: "Faire 15 squats avant le déjeuner", "Boire 1 grand verre d'eau au réveil", "Faire 3 minutes d'étirement en respirant profondément", "Remplacer sa collation par un fruit".
+      Ne donne qu'un seul défi, simple à actionner pour donner un sentiment d'accomplissement (gamification).
       
       Retourne UNIQUEMENT du JSON strict :
       {
-        "title": "Titre trÃ¨s court et dynamique",
+        "title": "Titre très court et dynamique",
         "description": "Explication rapide de comment le faire",
         "difficulty": "Facile, Moyen ou Difficile"
       }
@@ -4088,7 +4421,6 @@ class _DashboardTabState extends State<DashboardTab> {
       );
 
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
         setState(() {
           _dailyChallengeResult = result;
           _isDailyChallengeCompleted = false;
@@ -4096,7 +4428,7 @@ class _DashboardTabState extends State<DashboardTab> {
         await _saveDailyChallengeState();
       }
     } catch (e) {
-      print("Erreur crÃ©ation dÃ©fi: $e");
+      print("Erreur création défi: $e");
     } finally {
       if (mounted) setState(() => _isLoadingDailyChallenge = false);
     }
@@ -4110,7 +4442,7 @@ class _DashboardTabState extends State<DashboardTab> {
     final envSummary = _getEnvironmentalImpactSummary(_selectedDay!);
     final aiLifestyleData = _getAILifestyleScore();
     final manualLifestyleScore = _calculateManualLifestyleScore();
-    // NOUVEAU: RÃ©cupÃ©ration des donnÃ©es hebdomadaires
+    // NOUVEAU: Récupération des données hebdomadaires
     final weeklyEnergyData = _getWeeklyEnergyExpenditure();
     final goalAdherenceData = _getGoalAdherence();
 
@@ -4128,13 +4460,13 @@ class _DashboardTabState extends State<DashboardTab> {
     return Scaffold(
       body: ListView(
         children: [
-          // En-tÃªte : date, kcal net, scanner
+          // En-tête : date, kcal net, scanner
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 colors: [
-                  Theme.of(context).colorScheme.primary.darken(0.1),
-                  Theme.of(context).colorScheme.primary,
+                  Colors.teal.shade800,
+                  Colors.teal.shade600,
                 ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
@@ -4160,7 +4492,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   ),
                 ),
                 Text(
-                  '($consumedCalories ingÃ©rÃ©s âˆ’ ${dailyCaloriesBurned.toInt()} brÃ»lÃ©s)',
+                  '($consumedCalories ingérés - ${dailyCaloriesBurned.toInt()} brûlés)',
                   style: Theme.of(
                     context,
                   ).textTheme.bodyLarge?.copyWith(color: Colors.white70),
@@ -4186,7 +4518,7 @@ class _DashboardTabState extends State<DashboardTab> {
               children: [
                 _buildCalendar(),
                 const SizedBox(height: 24),
-                // NOUVEAU: Le dÃ©fi du jour gÃ©nÃ©rÃ© par IA
+                // NOUVEAU: Le défi du jour généré par IA
                 _buildDailyChallengeCard(context),
                 const SizedBox(height: 24),
                 // NOUVEAU: Ajout du widget de suivi du programme ici
@@ -4199,7 +4531,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'RÃ©capitulatif Quotidien',
+                  'Récapitulatif Quotidien',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -4214,7 +4546,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   ecoScoreGrade: envSummary['eco_score_grade'],
                 ),
                 const SizedBox(height: 24),
-                // NOUVEAU: Ajout de la carte de dÃ©pense Ã©nergÃ©tique hebdomadaire
+                // NOUVEAU: Ajout de la carte de dépense énergétique hebdomadaire
                 _buildWeeklyExpenditureCard(context, weeklyEnergyData),
                 const SizedBox(height: 24),
                 Text(
@@ -4277,7 +4609,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // NOUVELLE FONCTIONNALITÃ‰: Le widget du DÃ©fi du Jour GamifiÃ©
+  // NOUVELLE FONCTIONNALITÉ: Le widget du Défi du Jour Gamifié
   Widget _buildDailyChallengeCard(BuildContext context) {
     if (_dailyChallengeResult == null && !_isLoadingDailyChallenge) {
       return Card(
@@ -4302,7 +4634,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        "DÃ©fi du Jour IA",
+                        "Défi du Jour IA",
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -4310,7 +4642,7 @@ class _DashboardTabState extends State<DashboardTab> {
                         ),
                       ),
                       Text(
-                        "Cliquez ici pour gÃ©nÃ©rer votre dÃ©fi !",
+                        "Cliquez ici pour générer votre défi !",
                         style: TextStyle(
                           color: Color(0xFF6A1B9A), // purple.shade800
                           fontWeight: FontWeight.w500,
@@ -4339,7 +4671,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 CircularProgressIndicator(color: Colors.purple),
                 SizedBox(height: 16),
                 Text(
-                  "L'IA prÃ©pare votre dÃ©fi du jour...",
+                  "L'IA prépare votre défi du jour...",
                   style: TextStyle(color: Colors.grey),
                 ),
               ],
@@ -4349,7 +4681,7 @@ class _DashboardTabState extends State<DashboardTab> {
       );
     }
 
-    final title = _dailyChallengeResult!['title'] ?? "DÃ©fi mystÃ¨re";
+    final title = _dailyChallengeResult!['title'] ?? "Défi mystère";
     final desc = _dailyChallengeResult!['description'] ?? "";
     final diff = _dailyChallengeResult!['difficulty'] ?? "Moyen";
 
@@ -4393,7 +4725,7 @@ class _DashboardTabState extends State<DashboardTab> {
                     ),
                     const SizedBox(width: 8),
                     const Text(
-                      "DÃ©fi Quotidien",
+                      "Défi Quotidien",
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -4455,7 +4787,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                "ðŸŽ‰ DÃ©fi du jour accompli ! Bravo !",
+                                "🎉 Défi du jour accompli ! Bravo !",
                               ),
                               backgroundColor: Colors.green,
                               behavior: SnackBarBehavior.floating,
@@ -4467,7 +4799,7 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 label: Text(
                   _isDailyChallengeCompleted
-                      ? "DÃ©fi Accompli !"
+                      ? "Défi Accompli !"
                       : "Je l'ai fait !",
                 ),
                 style: ElevatedButton.styleFrom(
@@ -4574,7 +4906,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       _proposeNewGoalWithAI(context);
                     },
                     icon: const Icon(Icons.auto_awesome),
-                    label: const Text('GÃ©nÃ©rer un nouvel objectif via l\'IA'),
+                    label: const Text('Générer un nouvel objectif via l\'IA'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green.shade600,
                       foregroundColor: Colors.white,
@@ -4595,7 +4927,7 @@ class _DashboardTabState extends State<DashboardTab> {
           (ctx) => AlertDialog(
             title: const Text('Nouvel Objectif IA'),
             content: const Text(
-              'FÃ©licitations pour avoir atteint votre objectif ! L\'application peut faire appel Ã  l\'IA pour vous suggÃ©rer un nouveau dÃ©fi adaptÃ© Ã  votre mÃ©tabolisme actuel.\n\nVoulez-vous aller dans l\'onglet "Mes Objectifs" pour cela ?',
+              'Félicitations pour avoir atteint votre objectif ! L\'application peut faire appel à l\'IA pour vous suggérer un nouveau défi adapté à votre métabolisme actuel.\n\nVoulez-vous aller dans l\'onglet "Mes Objectifs" pour cela ?',
             ),
             actions: [
               TextButton(
@@ -4612,7 +4944,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "DÃ©duire l\'objectif avec l\'IA"',
+                        'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "Déduire l\'objectif avec l\'IA"',
                       ),
                     ),
                   );
@@ -4655,7 +4987,7 @@ class _DashboardTabState extends State<DashboardTab> {
             Padding(
               padding: const EdgeInsets.fromLTRB(8.0, 4.0, 8.0, 4.0),
               child: Text(
-                'Touchez un jour pour afficher ses donnÃ©es nutritionnelles.',
+                'Touchez un jour pour afficher ses données nutritionnelles.',
                 style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
               ),
             ),
@@ -4749,19 +5081,19 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'RÃ©sumÃ© de la JournÃ©e',
+              'Résumé de la Journée',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
             _RecapItem(
               icon: Icons.fastfood,
-              label: 'Calories consommÃ©es',
+              label: 'Calories consommées',
               value: '$caloriesConsumed kcal',
               color: Theme.of(context).colorScheme.primary,
             ),
             _RecapItem(
               icon: Icons.local_fire_department,
-              label: 'Calories brÃ»lÃ©es',
+              label: 'Calories brûlées',
               value: '$caloriesBurned kcal',
               color: Colors.orange.shade700,
             ),
@@ -4793,7 +5125,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // NOUVEAU: Widget pour la carte de dÃ©pense Ã©nergÃ©tique hebdomadaire
+  // NOUVEAU: Widget pour la carte de dépense énergétique hebdomadaire
   Widget _buildWeeklyExpenditureCard(
     BuildContext context,
     Map<String, double> weeklyData,
@@ -4810,7 +5142,7 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "DÃ©pense Ã‰nergÃ©tique Hebdomadaire",
+              "Dépense Énergétique Hebdomadaire",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 12),
@@ -4897,7 +5229,7 @@ class _DashboardTabState extends State<DashboardTab> {
         child: Column(
           children: [
             Text(
-              'Calories JournaliÃ¨res',
+              'Calories Journalières',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 20),
@@ -4965,7 +5297,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ),
             const SizedBox(height: 20),
             _MacroProgressIndicator(
-              label: 'ProtÃ©ines',
+              label: 'Protéines',
               currentValue: p,
               goalValue: pGoal,
               color: Colors.blue.shade600,
@@ -4990,7 +5322,7 @@ class _DashboardTabState extends State<DashboardTab> {
     );
   }
 
-  // MODIFIÃ‰: Carte d'objectif de poids pour inclure la projection
+  // MODIFIÉ: Carte d'objectif de poids pour inclure la projection
   Widget _buildWeightGoalCard(BuildContext context) {
     final sortedWeights = List<WeightEntry>.from(widget.allWeightEntries)
       ..sort((a, b) => a.date.compareTo(b.date));
@@ -5119,7 +5451,7 @@ class _DashboardTabState extends State<DashboardTab> {
     switch (ecoScoreGrade) {
       case 'A':
         impactMessage =
-            "Excellent ! Votre consommation a un trÃ¨s faible impact environnemental.";
+            "Excellent ! Votre consommation a un très faible impact environnemental.";
         impactColor = Colors.green.shade600;
         break;
       case 'B':
@@ -5129,21 +5461,21 @@ class _DashboardTabState extends State<DashboardTab> {
         break;
       case 'C':
         impactMessage =
-            "Moyen. Des amÃ©liorations sont possibles pour rÃ©duire votre empreinte.";
+            "Moyen. Des améliorations sont possibles pour réduire votre empreinte.";
         impactColor = Colors.orange.shade600;
         break;
       case 'D':
         impactMessage =
-            "Ã‰levÃ©. Il serait bÃ©nÃ©fique de revoir vos choix pour l'environnement.";
+            "Élevé. Il serait bénéfique de revoir vos choix pour l'environnement.";
         impactColor = Colors.deepOrange.shade600;
         break;
       case 'E':
         impactMessage =
-            "TrÃ¨s Ã©levÃ©. Un effort important est nÃ©cessaire pour rÃ©duire votre impact.";
+            "Très élevé. Un effort important est nécessaire pour réduire votre impact.";
         impactColor = Colors.red.shade600;
         break;
       default:
-        impactMessage = "Impossible d'Ã©valuer l'impact pour ce jour.";
+        impactMessage = "Impossible d'évaluer l'impact pour ce jour.";
         impactColor = Colors.grey.shade600;
         break;
     }
@@ -5203,11 +5535,11 @@ class _DashboardTabState extends State<DashboardTab> {
         children: [
           _RecapItem(
             icon: Icons.timer,
-            label: 'JeÃ»ne en cours',
+            label: 'Jeûne en cours',
             value: 'Fin dans ${_formatDuration(remainingTime)}',
             color: Colors.lightGreen.shade700,
             subtext:
-                'DÃ©butÃ© le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
+                'Débuté le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
           ),
           const Divider(height: 16),
         ],
@@ -5254,7 +5586,7 @@ class _DashboardTabState extends State<DashboardTab> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'RÃ©sumÃ© des JeÃ»nes',
+              'Résumé des Jeûnes',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
@@ -5298,7 +5630,7 @@ class _DashboardTabState extends State<DashboardTab> {
             ] else if (activeFastingSession == null) ...[
               const Center(
                 child: Text(
-                  "Aucun jeÃ»ne rÃ©cent.",
+                  "Aucun jeûne récent.",
                   style: TextStyle(color: Colors.grey),
                 ),
               ),
@@ -5338,7 +5670,7 @@ class _DashboardTabState extends State<DashboardTab> {
           padding: EdgeInsets.all(20.0),
           child: Center(
             child: Text(
-              "Ajoutez des repas, activitÃ©s et autres donnÃ©es pour obtenir votre score de vie journalier.",
+              "Ajoutez des repas, activités et autres données pour obtenir votre score de vie journalier.",
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: Colors.grey),
             ),
@@ -5398,7 +5730,7 @@ class _DashboardTabState extends State<DashboardTab> {
                           color: Colors.amber,
                         ),
                         onPressed: _generateGlobalAIAnalysis,
-                        tooltip: 'Demander un bilan Ã  l\'IA',
+                        tooltip: 'Demander un bilan à l\'IA',
                       ),
               ],
             ),
@@ -5431,7 +5763,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   onPressed:
                       _isAnalyzingGlobal ? null : _generateGlobalAIAnalysis,
                   icon: const Icon(Icons.auto_awesome, color: Colors.amber),
-                  label: const Text('Obtenir un vrai bilan IA avec DeepSeek'),
+                  label: const Text('Obtenir un vrai bilan IA avec Qwen'),
                 ),
               ),
             ],
@@ -5529,13 +5861,13 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
   List<dynamic> _generatedWorkout = [];
   bool _isWorkoutLoading = false;
 
-  // Calcule le dÃ©but de la semaine (Lundi)
+  // Calcule le début de la semaine (Lundi)
   DateTime get _startOfWeek {
     final now = DateTime.now();
     return now.subtract(Duration(days: now.weekday - 1));
   }
 
-  // Calcule les calories brÃ»lÃ©es depuis le dÃ©but de la semaine
+  // Calcule les calories brûlées depuis le début de la semaine
   double get _caloriesBurnedThisWeek {
     final start = _startOfWeek;
     return widget.activities
@@ -5543,12 +5875,12 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         .fold(0.0, (sum, item) => sum + item.caloriesBurned);
   }
 
-  // Fonction pour estimer les calories d'une activitÃ© via l'IA
+  // Fonction pour estimer les calories d'une activité via l'IA
   Future<void> _analyzeActivityWithIA() async {
     if (_promptController.text.isEmpty) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Veuillez dÃ©crire votre activitÃ©.'),
+          content: Text('Veuillez décrire votre activité.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -5557,8 +5889,8 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
 
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -5587,24 +5919,24 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     );
 
     final prompt = '''
-    En tant qu'expert coach sportif et nutritionniste, analyse la description de l'activitÃ© physique suivante pour un utilisateur.
-    Description de l'activitÃ©: "${_promptController.text}".
+    En tant qu'expert coach sportif et nutritionniste, analyse la description de l'activité physique suivante pour un utilisateur.
+    Description de l'activité: "${_promptController.text}".
     
-    Voici les informations de l'utilisateur pour une estimation prÃ©cise :
+    Voici les informations de l'utilisateur pour une estimation précise :
     - Poids: ${widget.userProfile?.weight ?? 70} kg
-    - Ã‚ge: ${widget.userProfile?.age ?? 30} ans
+    - Âge: ${widget.userProfile?.age ?? 30} ans
     - Sexe: ${widget.userProfile?.gender ?? 'male'}
-    - Niveau d'activitÃ© gÃ©nÃ©ral: ${widget.userProfile?.activityLevel ?? 'moderate'}
+    - Niveau d'activité général: ${widget.userProfile?.activityLevel ?? 'moderate'}
 
-    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
-    - "activity_name": Un nom court et descriptif pour l'activitÃ© (ex: "Course Ã  pied intense").
-    - "estimated_calories": Le nombre de calories brÃ»lÃ©es estimÃ© (nombre entier).
-    - "duration_minutes": La durÃ©e de l'activitÃ© en minutes (nombre entier).
-    - "activity_type": Une catÃ©gorie parmi "Course", "Marche", "Musculation", "VÃ©lo", "Yoga", "Natation", "Autre".
+    Fournis une réponse au format JSON strict. Le JSON doit contenir :
+    - "activity_name": Un nom court et descriptif pour l'activité (ex: "Course à pied intense").
+    - "estimated_calories": Le nombre de calories brûlées estimé (nombre entier).
+    - "duration_minutes": La durée de l'activité en minutes (nombre entier).
+    - "activity_type": Une catégorie parmi "Course", "Marche", "Musculation", "Vélo", "Yoga", "Natation", "Autre".
     
     Exemple de JSON attendu :
     {
-      "activity_name": "Course Ã  pied Ã  allure modÃ©rÃ©e",
+      "activity_name": "Course à pied à allure modérée",
       "estimated_calories": 450,
       "duration_minutes": 45,
       "activity_type": "Course"
@@ -5617,36 +5949,43 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         temperature: 0.3,
       );
 
-      if (mounted) Navigator.pop(context); // Ferme la boÃ®te de dialogue de chargement
+      if (mounted) Navigator.pop(context); // Ferme la boîte de dialogue de chargement
 
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
+        final double caloriesBurned = safeParseDouble(result['estimated_calories']);
+        final int durationMinutes = safeParseInt(result['duration_minutes']);
+
         widget.addActivity(
           ActivityEntry(
-            description: result['activity_name'],
-            caloriesBurned: (result['estimated_calories'] as num).toDouble(),
-            duration: Duration(minutes: result['duration_minutes']),
-            activityType: result['activity_type'],
+            description: result['activity_name'] ?? 'Activité',
+            caloriesBurned: caloriesBurned,
+            duration: Duration(minutes: durationMinutes),
+            activityType: result['activity_type'] ?? 'Autre',
             timestamp: _selectedDate,
             isAiEstimated: true,
           ),
         );
+
+        // 🚀 AJUSTEMENT DU JEÛNE SI SPORT INTENSE
+        bool isIntense = caloriesBurned > 400;
+        SL.expertSystem.adjustFastingWindow(isIntense);
+
         _promptController.clear();
       } else {
-        throw Exception('RÃ©ponse IA vide');
+        throw Exception('Réponse IA vide');
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Erreur IA: RÃ©seau ou serveur indisponible.'),
+          content: Text('Erreur IA: Réseau ou serveur indisponible.'),
           backgroundColor: Colors.red,
         ),
       );
     }
   }
 
-  // Fonction pour gÃ©nÃ©rer un plan d'entraÃ®nement avec l'IA
+  // Fonction pour générer un plan d'entraînement avec l'IA
   Future<void> _generateWorkoutPlanWithIA({
     bool isWeekly = false,
     bool isAtGym = false,
@@ -5655,7 +5994,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Cette fonctionnalitÃ© est rÃ©servÃ©e aux membres Premium.",
+            "Cette fonctionnalité est réservée aux membres Premium.",
           ),
           backgroundColor: Colors.amber,
         ),
@@ -5663,12 +6002,12 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       return;
     }
 
-    // AJOUTÃ‰: VÃ©rification pour s'assurer que le profil est bien chargÃ©
+    // AJOUTÉ: Vérification pour s'assurer que le profil est bien chargé
     if (widget.userProfile == null) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            "Le profil utilisateur n'a pas pu Ãªtre chargÃ©, impossible de gÃ©nÃ©rer un plan.",
+            "Le profil utilisateur n'a pas pu être chargé, impossible de générer un plan.",
           ),
           backgroundColor: Colors.red,
         ),
@@ -5679,15 +6018,15 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     setState(() => _isWorkoutLoading = true);
 
     final prompt = '''
-    En tant qu'entraÃ®neur personnel d'Ã©lite, crÃ©e un plan d'entraÃ®nement pour un utilisateur avec le profil suivant :
+    En tant qu'entraîneur personnel d'élite, crée un plan d'entraînement pour un utilisateur avec le profil suivant :
     - Objectif: ${widget.currentGoals.weightGoalType == 'gain' ? 'Prise de muscle' : (widget.currentGoals.weightGoalType == 'lose' ? 'Perte de poids' : 'Maintien')}
-    - Sports aimÃ©s: ${widget.userProfile!.likedSports}
-    - Sports dÃ©testÃ©s: ${widget.userProfile!.dislikedSports}
+    - Sports aimés: ${widget.userProfile!.likedSports}
+    - Sports détestés: ${widget.userProfile!.dislikedSports}
 
-    ${isAtGym ? "ATTENTION : L'utilisateur est ACTUELLEMENT Ã€ LA SALLE DE SPORT. Utilise les machines disponibles (poulies, haltÃ¨res, machines guidÃ©es) pour un maximum d'efficacitÃ©." : "Ã‰quipement disponible: ${widget.userProfile!.gymMode ? 'Salle complÃ¨te' : widget.userProfile!.availableEquipment.join(', ')}"}
+    ${isAtGym ? "ATTENTION : L'utilisateur est ACTUELLEMENT À LA SALLE DE SPORT. Utilise les machines disponibles (poulies, haltères, machines guidées) pour un maximum d'efficacité." : "Équipement disponible: ${widget.userProfile!.gymMode ? 'Salle complète' : widget.userProfile!.availableEquipment.join(', ')}"}
 
-    TÃ¢che : gÃ©nÃ©rer un plan dÃ©taillÃ© adaptÃ© UNIQUEMENT au matÃ©riel disponible pour ${isWeekly ? 'la semaine complÃ¨te (7 jours)' : 'la sÃ©ance du jour'}.
-    ... (Reste du JSON inchangÃ©)
+    Tâche : générer un plan détaillé adapté UNIQUEMENT au matériel disponible pour ${isWeekly ? 'la semaine complète (7 jours)' : 'la séance du jour'}.
+    ... (Reste du JSON inchangé)
     ''';
 
     try {
@@ -5700,7 +6039,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         final List<dynamic> plan = result['workout_plan'] ?? [];
         setState(() => _generatedWorkout = plan);
       } else {
-        throw Exception('RÃ©ponse IA vide');
+        throw Exception('Réponse IA vide');
       }
     } on SocketException {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -5720,7 +6059,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     }
   }
 
-  // Fonction pour ajouter une activitÃ© manuellement
+  // Fonction pour ajouter une activité manuellement
   Future<void> _addActivityManually() async {
     final descController = TextEditingController();
     final calController = TextEditingController();
@@ -5735,7 +6074,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
           (ctx) => StatefulBuilder(
             builder:
                 (ctx, setStateBuilder) => AlertDialog(
-                  title: const Text('Ajouter une activitÃ© manuellement'),
+                  title: const Text('Ajouter une activité manuellement'),
                   content: SingleChildScrollView(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -5749,14 +6088,14 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                         DropdownButtonFormField<String>(
                           initialValue: activityType,
                           decoration: const InputDecoration(
-                            labelText: 'Type d\'activitÃ©',
+                            labelText: 'Type d\'activité',
                           ),
                           items:
                               [
                                     'Course',
                                     'Marche',
                                     'Musculation',
-                                    'VÃ©lo',
+                                    'Vélo',
                                     'Yoga',
                                     'Natation',
                                     'Autre',
@@ -5783,14 +6122,14 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                         TextField(
                           controller: durController,
                           decoration: const InputDecoration(
-                            labelText: 'DurÃ©e (minutes)',
+                            labelText: 'Durée (minutes)',
                           ),
                           keyboardType: TextInputType.number,
                         ),
                         DropdownButtonFormField<String>(
                           initialValue: intensity,
                           items:
-                              ['Faible', 'Moyenne', 'Ã‰levÃ©e']
+                              ['Faible', 'Moyenne', 'Élevée']
                                   .map(
                                     (e) => DropdownMenuItem(
                                       value: e,
@@ -5804,14 +6143,14 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                             }
                           },
                           decoration: const InputDecoration(
-                            labelText: 'IntensitÃ©',
+                            labelText: 'Intensité',
                           ),
                         ),
                         TextField(
                           controller: calController,
                           decoration: const InputDecoration(
-                            labelText: 'Calories brÃ»lÃ©es (optionnel)',
-                            hintText: 'CalculÃ©es par IA sinon',
+                            labelText: 'Calories brûlées (optionnel)',
+                            hintText: 'Calculées par IA sinon',
                           ),
                           keyboardType: TextInputType.number,
                         ),
@@ -5834,7 +6173,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                             double met = 5.0; // Moyenne
                             if (intensity == 'Faible') {
                               met = 3.5;
-                            } else if (intensity == 'Ã‰levÃ©e')
+                            } else if (intensity == 'Élevée')
                               met = 6.0;
                             final userWeight =
                                 widget.userProfile?.weight ?? 70.0;
@@ -5856,12 +6195,17 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                               timestamp: _selectedDate,
                             ),
                           );
+
+                          // 🚀 AJUSTEMENT DU JEÛNE SI SPORT INTENSE
+                          bool isIntense = calories > 400;
+                          SL.expertSystem.adjustFastingWindow(isIntense);
+
                           Navigator.pop(ctx);
                         } else {
                           if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
                               content: Text(
-                                'Veuillez remplir les champs Description et DurÃ©e',
+                                'Veuillez remplir les champs Description et Durée',
                               ),
                               backgroundColor: Colors.red,
                             ),
@@ -5882,7 +6226,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Supprimer l\'activitÃ© ?'),
+            title: const Text('Supprimer l\'activité ?'),
             content: Text(
               'Voulez-vous vraiment supprimer "${activity.description}" ?',
             ),
@@ -5904,7 +6248,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     );
   }
 
-  // Helper pour l'icÃ´ne
+  // Helper pour l'icône
   IconData _getActivityIcon(String activityType) {
     switch (activityType.toLowerCase()) {
       case 'course':
@@ -5913,7 +6257,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         return Icons.directions_walk;
       case 'musculation':
         return Icons.fitness_center;
-      case 'vÃ©lo':
+      case 'vélo':
         return Icons.directions_bike;
       case 'yoga':
         return Icons.self_improvement;
@@ -5938,7 +6282,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Suivi des ActivitÃ©s Physiques'),
+        title: const Text('Suivi des Activités Physiques'),
         automaticallyImplyLeading: false,
       ),
       body: SafeArea(
@@ -6030,9 +6374,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                     vertical: 8.0,
                   ),
                   child: Card(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.primaryContainer.withOpacity(0.18),
+                    elevation: 4,
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),
                       child: Column(
@@ -6041,16 +6383,16 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                             children: [
                               Icon(
                                 Icons.auto_awesome,
-                                color: Colors.blue.shade700,
+                                color: Theme.of(context).colorScheme.primary,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
-                                  "Votre Plan d'EntraÃ®nement IA (VIP)",
+                                  "Votre Plan d'Entraînement IA (VIP)",
                                   style: Theme.of(
                                     context,
                                   ).textTheme.titleLarge?.copyWith(
-                                    color: Colors.blueGrey.shade900,
+                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
                               ),
@@ -6070,7 +6412,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                                       ),
                                   icon: const Icon(Icons.today),
                                   label: const Text(
-                                    "GÃ©nÃ©rer un plan pour aujourd'hui",
+                                    "Générer un plan pour aujourd'hui",
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -6081,7 +6423,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                                       ),
                                   icon: const Icon(Icons.date_range),
                                   label: const Text(
-                                    "GÃ©nÃ©rer un plan pour la semaine",
+                                    "Générer un plan pour la semaine",
                                   ),
                                 ),
                                 const SizedBox(height: 8),
@@ -6093,7 +6435,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                                       ),
                                   icon: const Icon(Icons.fitness_center),
                                   label: const Text(
-                                    "GÃ©nÃ©rer (Je suis Ã  la salle !)",
+                                    "Générer (Je suis à la salle !)",
                                   ),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.purple.shade600,
@@ -6153,7 +6495,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                                     ),
                                   ),
                                   subtitle: Text(
-                                    '$subtitle\n${duration}min â€¢ ${calories.toInt()} kcal',
+                                    '$subtitle\n${duration}min "¢ ${calories.toInt()} kcal',
                                   ),
                                   trailing: IconButton(
                                     icon: const Icon(
@@ -6178,7 +6520,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                                       ).showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            'ActivitÃ© "$title" ajoutÃ©e !',
+                                            'Activité "$title" ajoutée !',
                                           ),
                                         ),
                                       );
@@ -6217,7 +6559,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                       size: 40,
                     ),
                     title: const Text(
-                      "BibliothÃ¨que d'exercices",
+                      "Bibliothèque d'exercices",
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: const Text(
@@ -6261,15 +6603,15 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          "DÃ©crire votre activitÃ© pour l'IA",
+                          "Décrire votre activité pour l'IA",
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 12),
                         TextField(
                           controller: _promptController,
                           decoration: InputDecoration(
-                            labelText: 'Ex: "45min de course intense en cÃ´te"',
-                            hintText: 'DÃ©crivez votre sÃ©ance de sport',
+                            labelText: 'Ex: "45min de course intense en côte"',
+                            hintText: 'Décrivez votre séance de sport',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -6287,7 +6629,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                             icon: const Icon(Icons.lightbulb_outline),
                             label: Text(
                               widget.isPremiumUser
-                                  ? 'Estimer calories brÃ»lÃ©es (IA)'
+                                  ? 'Estimer calories brûlées (IA)'
                                   : 'Estimer calories (IA - 5/jour)',
                             ),
                           ),
@@ -6302,7 +6644,7 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                     child: Padding(
                       padding: EdgeInsets.all(20.0),
                       child: Text(
-                        'Aucune activitÃ© enregistrÃ©e pour cette date. Ajoutez-en une !',
+                        'Aucune activité enregistrée pour cette date. Ajoutez-en une !',
                         style: TextStyle(fontSize: 16, color: Colors.grey),
                         textAlign: TextAlign.center,
                       ),
@@ -6333,11 +6675,11 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '${activity.duration.inMinutes} min â€¢ ${activity.activityType}',
+                                '${activity.duration.inMinutes} min "¢ ${activity.activityType}',
                               ),
                               if (activity.isAiEstimated)
                                 const Text(
-                                  'EstimÃ© par IA',
+                                  'Estimé par IA',
                                   style: TextStyle(
                                     fontStyle: FontStyle.italic,
                                     color: Colors.grey,
@@ -6366,13 +6708,25 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _addActivityManually,
-        label: const Text('Ajouter une activitÃ©'),
+        label: const Text('Ajouter une activité'),
         icon: const Icon(Icons.add),
         heroTag: 'addActivityFab',
       ),
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
+}
+
+class ProgressPhoto {
+  final File? localFile;
+  final String? imageUrl;
+  final DateTime date;
+
+  ProgressPhoto({
+    this.localFile,
+    this.imageUrl,
+    required this.date,
+  });
 }
 
 class EvolutionTab extends StatefulWidget {
@@ -6415,15 +6769,45 @@ class _EvolutionTabState extends State<EvolutionTab> {
         widget.allWeightEntries.isNotEmpty
             ? widget.allWeightEntries.last.weight
             : (widget.userProfile?.weight ?? 70.0);
-    // Lancer la premiÃ¨re projection au chargement de l'onglet
+    _loadProgressPhotosFromFirestore();
     _updateProjections();
+  }
+
+  Future<void> _loadProgressPhotosFromFirestore() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('progressPhotos')
+          .orderBy('date', descending: true)
+          .get();
+
+      if (!mounted) return;
+      setState(() {
+        _progressPhotos = snapshot.docs.map((doc) {
+          final data = doc.data();
+          final timestamp = data['date'] as Timestamp?;
+          final date = timestamp != null ? timestamp.toDate() : DateTime.now();
+          final url = data['imageUrl'] as String?;
+          return ProgressPhoto(
+            imageUrl: url,
+            date: date,
+          );
+        }).toList();
+      });
+    } catch (e) {
+      debugPrint("Erreur chargement photos Firestore: $e");
+    }
   }
 
   @override
   void didUpdateWidget(covariant EvolutionTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Si les donnÃ©es changent (ex: aprÃ¨s une suppression), on met Ã  jour les projections.
-    // C'est une mÃ©thode robuste pour garder l'UI synchronisÃ©e.
+    // Si les données changent (ex: après une suppression), on met à jour les projections.
+    // C'est une méthode robuste pour garder l'UI synchronisée.
     if (widget.allWeightEntries.length != oldWidget.allWeightEntries.length ||
         widget.currentGoals != oldWidget.currentGoals ||
         widget.allFoodEntries.length != oldWidget.allFoodEntries.length) {
@@ -6431,12 +6815,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
     }
   }
 
-  // Fonction centrale pour rafraÃ®chir les donnÃ©es de projection
+  // Fonction centrale pour rafraîchir les données de projection
   void _updateProjections() {
     if (!mounted) return;
 
     final newProjectionData = _getWeightProjections();
-    // CORRECTION: Gestion sÃ»re de la liste de projections
+    // CORRECTION: Gestion sûre de la liste de projections
     final projections =
         (newProjectionData['projections'] as List?)
             ?.map((e) => e as Map<String, dynamic>)
@@ -6459,12 +6843,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
       for (var proj in projections) {
         final daysDiff = (proj['date'] as DateTime).difference(lastDate).inDays;
         final newX =
-            lastX + (daysDiff / 7.0); // 1 unitÃ© sur l'axe X = env. 1 semaine
+            lastX + (daysDiff / 7.0); // 1 unité sur l'axe X = env. 1 semaine
         newSpots.add(FlSpot(newX, proj['weight'] as double));
       }
     }
 
-    // Mettre Ã  jour l'Ã©tat pour reconstruire le widget avec les nouvelles donnÃ©es
+    // Mettre à jour l'état pour reconstruire le widget avec les nouvelles données
     setState(() {
       _projectedSpots = newSpots;
       _projectionData = newProjectionData;
@@ -6473,25 +6857,78 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
   bool _isAiAnalyzing = false;
   String? _aiAnalysisText;
-  final List<File> _progressPhotos = [];
+  List<ProgressPhoto> _progressPhotos = [];
 
   Future<void> _takeProgressPhoto() async {
     final picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(
       source: ImageSource.camera,
     );
+
     if (pickedFile != null && mounted) {
-      setState(() {
-        _progressPhotos.add(File(pickedFile.path));
-      });
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => const Center(child: CircularProgressIndicator()),
+      );
+
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user == null) throw Exception("Utilisateur non connecté");
+
+        final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('users/${user.uid}/progress_photos/$fileName');
+
+        final file = File(pickedFile.path);
+        await ref.putFile(file);
+
+        final downloadUrl = await ref.getDownloadURL();
+
+        final now = DateTime.now();
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('progressPhotos')
+            .add({
+          'imageUrl': downloadUrl,
+          'date': Timestamp.fromDate(now),
+          'fileName': fileName,
+        });
+
+        if (mounted) {
+          setState(() {
+            _progressPhotos.insert(
+              0,
+              ProgressPhoto(
+                localFile: file,
+                imageUrl: downloadUrl,
+                date: now,
+              ),
+            );
+          });
+          Navigator.pop(context);
+        }
+      } catch (e) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Erreur sauvegarde photo: $e"),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+      }
     }
   }
 
   Future<void> _analyzeEvolutionWithIA() async {
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
@@ -6558,8 +6995,6 @@ class _EvolutionTabState extends State<EvolutionTab> {
         temperature: 0.5,
       );
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
-
         setState(() {
           _aiAnalysisText = result['analysis'];
 
@@ -6577,7 +7012,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
             List<Map<String, dynamic>> aiProjectionData = [];
 
             for (int i = 0; i < projVals.length; i++) {
-              double val = (projVals[i] as num).toDouble();
+              double val = safeParseDouble(projVals[i]);
               double newX = lastX + (i + 1);
               newSpots.add(FlSpot(newX, val));
               aiProjectionData.add({
@@ -6589,21 +7024,21 @@ class _EvolutionTabState extends State<EvolutionTab> {
             _projectedSpots = newSpots;
             _projectionData = {
               'message':
-                  "Les projections ci-dessus ont Ã©tÃ© gÃ©nÃ©rÃ©es par l'intelligence artificielle Mistral.",
+                  "Les projections ci-dessus ont été générées par l'intelligence artificielle Mistral.",
               'projections': aiProjectionData,
-              'time_message': "Projections IA activÃ©es",
+              'time_message': "Projections IA activées",
             };
           }
         });
       } else {
-        throw Exception('RÃ©ponse IA vide');
+        throw Exception('Réponse IA vide');
       }
     } catch (e) {
       debugPrint('Erreur IA: $e');
       if (mounted) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Erreur IA: RÃ©seau ou Serveur indisponible.'),
+            content: Text('Erreur IA: Réseau ou Serveur indisponible.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -6676,7 +7111,16 @@ class _EvolutionTabState extends State<EvolutionTab> {
                     );
                     widget.addWeightEntry(
                       entryToSave,
-                    ); // Le didUpdateWidget se chargera de rafraÃ®chir
+                    ); // Le didUpdateWidget se chargera de rafraîchir
+
+                    // 🚀 DÉTECTION DE PLATEAU MÉTABOLIQUE
+                    final recentWeights = widget.allWeightEntries.map((e) => e.weight).toList()..add(_currentWeightInput);
+                    if (recentWeights.length >= 3) {
+                      SL.expertSystem.evaluateMetabolicAdaptationDetailed(
+                        recentWeights: recentWeights.take(3).toList(),
+                        averageCaloricDeficit: -500.0,
+                      );
+                    }
                   } else {
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
@@ -6693,15 +7137,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
     );
   }
 
-  // CORRECTION: Le bouton de suppression rafraÃ®chit maintenant l'UI.
+  // CORRECTION: Le bouton de suppression rafraîchit maintenant l'UI.
   void _showDeleteWeightDialog(WeightEntry entry) {
     showDialog(
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Supprimer la pesÃ©e ?'),
+            title: const Text('Supprimer la pesée ?'),
             content: Text(
-              'Voulez-vous vraiment supprimer la pesÃ©e du ${DateFormat('d MMMM', 'fr_FR').format(entry.date)} ?',
+              'Voulez-vous vraiment supprimer la pesée du ${DateFormat('d MMMM', 'fr_FR').format(entry.date)} ?',
             ),
             actions: [
               TextButton(
@@ -6713,7 +7157,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                   Navigator.pop(ctx);
                   widget.deleteWeightEntry(
                     entry.id,
-                  ); // Le didUpdateWidget se chargera de rafraÃ®chir
+                  ); // Le didUpdateWidget se chargera de rafraîchir
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 child: const Text('Supprimer'),
@@ -6723,7 +7167,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
     );
   }
 
-  // CORRECTION: Algorithme de projection entiÃ¨rement revu pour plus de fiabilitÃ©.
+  // CORRECTION: Algorithme de projection entièrement revu pour plus de fiabilité.
   Map<String, dynamic> _getWeightProjections() {
     if (widget.userProfile == null) {
       return {
@@ -6760,7 +7204,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
     if (sortedEntries.length < 2) {
       return {
-        'message': 'Ajoutez au moins deux pesÃ©es pour activer les projections.',
+        'message': 'Ajoutez au moins deux pesées pour activer les projections.',
         'projections': [],
         'time_message': '',
       };
@@ -6853,7 +7297,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
             ? (weightBasedWeeklyChange * 0.7 + calorieBasedWeeklyChange * 0.3)
             : calorieBasedWeeklyChange;
 
-    // MODIFICATION: On retire l'influence du sommeil et on garde celle de la diÃ¨te
+    // MODIFICATION: On retire l'influence du sommeil et on garde celle de la diète
     switch (profile.dietQuality) {
       case 'saine':
         finalProjectionRate *= 1.10;
@@ -6866,7 +7310,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
         break;
     }
     if (profile.stressLevel == 'high') finalProjectionRate *= 0.90;
-    // La qualitÃ© du sommeil n'influence plus la projection ici
+    // La qualité du sommeil n'influence plus la projection ici
 
     if (goalType == 'lose' && finalProjectionRate >= 0) {
       finalProjectionRate = -0.3;
@@ -6877,21 +7321,21 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
     String timeMessage = '';
     String mainMessage =
-        "BasÃ© sur vos donnÃ©es, l'algorithme estime une variation de ${finalProjectionRate.toStringAsFixed(2)} kg/semaine.";
+        "Basé sur vos données, l'algorithme estime une variation de ${finalProjectionRate.toStringAsFixed(2)} kg/semaine.";
 
     if (goalType == 'lose') {
       final weightToLose = currentWeight - targetWeight;
       if (weightToLose > 0 && finalProjectionRate < 0) {
         int weeksNeeded = (weightToLose / finalProjectionRate.abs()).ceil();
         timeMessage =
-            "Ã€ ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
+            "À ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
       }
     } else if (goalType == 'gain') {
       final weightToGain = targetWeight - currentWeight;
       if (weightToGain > 0 && finalProjectionRate > 0) {
         int weeksNeeded = (weightToGain / finalProjectionRate.abs()).ceil();
         timeMessage =
-            "Ã€ ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
+            "À ce rythme, vous pourriez atteindre votre objectif en environ $weeksNeeded semaines.";
       }
     }
 
@@ -6913,6 +7357,38 @@ class _EvolutionTabState extends State<EvolutionTab> {
   }
 
   Widget _buildProgressPhotoGallery() {
+    if (_progressPhotos.isEmpty) {
+      return Card(
+        elevation: 4,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Galerie de Progression',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_a_photo, color: Colors.teal),
+                    onPressed: _takeProgressPhoto,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                "Prenez une photo aujourd'hui pour démarrer votre journal visuel !",
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Card(
       elevation: 4,
       child: Padding(
@@ -6934,30 +7410,131 @@ class _EvolutionTabState extends State<EvolutionTab> {
               ],
             ),
             const SizedBox(height: 10),
-            if (_progressPhotos.isEmpty)
-              const Text(
-                "Prenez une photo aujourd'hui pour dÃ©marrer votre journal visuel !",
-                style: TextStyle(color: Colors.grey),
-              )
-            else
-              SizedBox(
-                height: 150,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: _progressPhotos.length,
-                  itemBuilder: (context, index) {
-                    return Container(
-                      margin: const EdgeInsets.only(right: 10),
-                      width: 110,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(12),
-                        image: DecorationImage(
-                          image: FileImage(_progressPhotos[index]),
-                          fit: BoxFit.cover,
+            SizedBox(
+              height: 180,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: _progressPhotos.length,
+                itemBuilder: (context, index) {
+                  final photo = _progressPhotos[index];
+                  return Container(
+                    margin: const EdgeInsets.only(right: 15),
+                    width: 140,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 5,
+                          offset: const Offset(0, 3),
                         ),
+                      ],
+                    ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: photo.localFile != null
+                              ? Image.file(photo.localFile!, fit: BoxFit.cover)
+                              : (photo.imageUrl != null && photo.imageUrl!.isNotEmpty
+                                  ? Image.network(
+                                      photo.imageUrl!,
+                                      fit: BoxFit.cover,
+                                      loadingBuilder: (context, child, loadingProgress) {
+                                        if (loadingProgress == null) return child;
+                                        return Center(
+                                          child: CircularProgressIndicator(
+                                            value: loadingProgress.expectedTotalBytes != null
+                                                ? loadingProgress.cumulativeBytesLoaded /
+                                                    loadingProgress.expectedTotalBytes!
+                                                : null,
+                                          ),
+                                        );
+                                      },
+                                      errorBuilder: (context, error, stackTrace) =>
+                                          Container(
+                                            color: Colors.grey.shade300,
+                                            child: const Icon(Icons.broken_image, color: Colors.grey),
+                                          ),
+                                    )
+                                  : Container(color: Colors.grey.shade300)),
+                        ),
+                        Positioned(
+                          bottom: 8,
+                          left: 8,
+                          right: 8,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              DateFormat('dd/MM/yy', 'fr_FR').format(photo.date),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                        if (index == _progressPhotos.length - 1 &&
+                            _progressPhotos.length > 1)
+                          Positioned(
+                            right: -10,
+                            top: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 20,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withOpacity(0.3),
+                                  ],
+                                ),
+                                borderRadius: const BorderRadius.only(
+                                  topRight: Radius.circular(12),
+                                  bottomRight: Radius.circular(12),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.arrow_forward_ios,
+                                color: Colors.white,
+                                size: 16,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+            if (_progressPhotos.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.swipe_left, size: 16, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Glissez vers la gauche pour voir les anciennes photos',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
               ),
           ],
@@ -6971,7 +7548,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
       return const Center(
         heightFactor: 5,
         child: Text(
-          'Ajoutez au moins une pesÃ©e pour voir le graphique.',
+          'Ajoutez au moins une pesée pour voir le graphique.',
           style: TextStyle(color: Colors.grey),
         ),
       );
@@ -7137,13 +7714,13 @@ class _EvolutionTabState extends State<EvolutionTab> {
     } else if (goalType == 'lose')
       fabLabel = 'Suivi perte de poids';
 
-    // Trier les entrÃ©es pour l'affichage de l'historique
+    // Trier les entrées pour l'affichage de l'historique
     final reversedEntries = List<WeightEntry>.from(widget.allWeightEntries)
       ..sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ã‰volution et Projections'),
+        title: const Text('Évolution et Projections'),
         automaticallyImplyLeading: false,
       ),
       body: Column(
@@ -7160,12 +7737,12 @@ class _EvolutionTabState extends State<EvolutionTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Graphique d\'Ã‰volution du Poids',
+                          'Graphique d\'Évolution du Poids',
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Ligne continue: Historique, PointillÃ©e: Projection, Rouge: Objectif',
+                          'Ligne continue: Historique, Pointillée: Projection, Rouge: Objectif',
                           style: TextStyle(
                             fontSize: 12,
                             color: Colors.grey.shade600,
@@ -7175,7 +7752,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                         _buildWeightChart(),
                         const SizedBox(height: 16),
                         Text(
-                          'Dernier poids enregistrÃ© : ${widget.allWeightEntries.isNotEmpty ? widget.allWeightEntries.last.weight.toStringAsFixed(1) : "N/A"} kg.',
+                          'Dernier poids enregistré : ${widget.allWeightEntries.isNotEmpty ? widget.allWeightEntries.last.weight.toStringAsFixed(1) : "N/A"} kg.',
                           style: TextStyle(
                             color: Colors.grey.shade700,
                             fontStyle: FontStyle.italic,
@@ -7294,7 +7871,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                 reversedEntries.isEmpty
                     ? const Center(
                       child: Text(
-                        'Aucune mesure de poids enregistrÃ©e.',
+                        'Aucune mesure de poids enregistrée.',
                         style: TextStyle(color: Colors.grey),
                       ),
                     )
@@ -7324,7 +7901,7 @@ class _EvolutionTabState extends State<EvolutionTab> {
                                         fontSize: 16,
                                       ),
                                     ),
-                                    // CORRECTION: Le bouton de suppression appelle la fonction corrigÃ©e
+                                    // CORRECTION: Le bouton de suppression appelle la fonction corrigée
                                     IconButton(
                                       icon: const Icon(
                                         Icons.delete,
@@ -7355,14 +7932,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
 }
 
 // =============================================================================
-// RESTE DES ONGLETS (avec intÃ©gration Premium et UsageTracker)
+// RESTE DES ONGLETS (avec intégration Premium et UsageTracker)
 // =============================================================================
 
 class UserLimits {
   static const int freePhotoAnalysisPerDay = 1;
   static const int freeScanAnalysisPerDay = 5;
-  static const int freeDeepSeekApiPerDay =
+  static const int freeAiApiPerDay =
       5; // Used for text analysis, meal plans, etc.
+  static const int freeDeepSeekApiPerDay = freeAiApiPerDay;
 }
 
 class ProductDetailPage extends StatefulWidget {
@@ -7406,8 +7984,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   bool _alternativesSearchDone = false;
 
   List<Map<String, dynamic>>? _analyzedIngredients;
-  String? _deepSeekOverallHealthVerdict;
-  String? _deepSeekSummary;
+  String? _aiOverallHealthVerdict;
+  String? _aiSummary;
 
   bool _isEcoScoreEstimated = false;
   String? _ecoScoreGrade;
@@ -7419,8 +7997,40 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   List<dynamic>? _environmentalWarnings;
   String? _co2Info;
   Map<String, double>? _lifecycleBreakdown;
-
   String? _globalEcoScoreGrade;
+
+  Future<void> _scanNutritionalLabelFallback() async {
+    final picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.camera);
+    if (image == null) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      final ocrJsonStr = await SL.mealVision.extractNutritionLabelOCR(File(image.path));
+      if (ocrJsonStr != null) {
+        final cleanJson = ocrJsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
+        final Map<String, dynamic> data = json.decode(cleanJson);
+
+        setState(() {
+          _productName = "Aliment (Scan Étiquette OCR)";
+          _nutriments = {
+            'energy-kcal_100g': data['calories'],
+            'proteins_100g': data['proteins'],
+            'carbohydrates_100g': data['carbs'],
+            'fat_100g': data['fats'],
+          };
+          _errorMessage = null;
+          _isProcessing = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Impossible de lire le tableau nutritionnel. Entrez les valeurs manuellement.";
+        _isProcessing = false;
+      });
+    }
+  }
   double? _globalEcoScoreValue;
   String? _globalEcoScoreJustification;
 
@@ -7453,8 +8063,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       _productCategory = null;
       _specificCategoryTag = null;
       _analyzedIngredients = null;
-      _deepSeekOverallHealthVerdict = null;
-      _deepSeekSummary = null;
+      _aiOverallHealthVerdict = null;
+      _aiSummary = null;
       _isEcoScoreEstimated = false;
       _ecoScoreGrade = null;
       _ecoScoreValue = null;
@@ -7483,8 +8093,8 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final data = json.decode(response.body);
         if (data['status'] == 1 && data['product'] != null) {
           final product = data['product'];
-          final productName = product['product_name'] ?? 'Nom non trouvÃ©';
-          final productCategory = product['categories'] ?? 'CatÃ©gorie inconnue';
+          final productName = product['product_name'] ?? 'Nom non trouvé';
+          final productCategory = product['categories'] ?? 'Catégorie inconnue';
 
           setState(() {
             _productName = productName;
@@ -7541,55 +8151,17 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
 
           final bool canUseIA =
               widget.isPremiumUser ||
-              await widget.usageTrackerService.getDeepSeekApiCallCount() <
-                  widget.usageTrackerService.deepSeekLimit;
+              await widget.usageTrackerService.getAiApiCallCount() <
+                  widget.usageTrackerService.aiLimit;
 
           if (canUseIA) {
-            if (widget.isPremiumUser) {
-              await Future.wait([
-                _analyzeProductWithDeepSeek(
-                  productName,
-                  rawIngredientNames,
-                  productCategory,
-                  _vegetarianStatus!,
-                ),
-                _processEnvironmentalImpact(
-                  productName,
-                  rawIngredientNames,
-                  productCategory,
-                ),
-                _analyzeGlobalEnvironmentalImpactWithDeepSeek(
-                  productName,
-                  rawIngredientNames,
-                  productCategory,
-                  _vegetarianStatus!,
-                ),
-              ]);
-            } else {
-              await _analyzeProductWithDeepSeek(
-                productName,
-                rawIngredientNames,
-                productCategory,
-                _vegetarianStatus!,
-              );
-              await _processEnvironmentalImpact(
-                productName,
-                rawIngredientNames,
-                productCategory,
-              );
-              await _analyzeGlobalEnvironmentalImpactWithDeepSeek(
-                productName,
-                rawIngredientNames,
-                productCategory,
-                _vegetarianStatus!,
-              );
-            }
-          } else {
-            await _processEnvironmentalImpact(
+            await _analyzeProductMegaPromptWithAI(
               productName,
               rawIngredientNames,
               productCategory,
+              _vegetarianStatus!,
             );
+          } else {
             setState(
               () =>
                   _errorMessage =
@@ -7607,7 +8179,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           });
         } else {
           setState(
-            () => _errorMessage = 'Produit non trouvÃ© pour ce code-barres.',
+            () => _errorMessage = 'Produit non trouvé pour ce code-barres.',
           );
         }
       } else {
@@ -7663,14 +8235,14 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         final packaging = adjustments['packaging'];
         if (packaging['non_recyclable_and_non_biodegradable_materials'] ==
             '1') {
-          maluses.add("Emballage non recyclable et non biodÃ©gradable");
+          maluses.add("Emballage non recyclable et non biodégradable");
         }
         if (packaging['packagings'] != null) {
           for (var pack in packaging['packagings']) {
             if (pack['recycling'] != 'en:recyclable' &&
                 pack['recycling'] != 'en:unknown') {
               maluses.add(
-                "MatÃ©riau d'emballage difficile Ã  recycler: ${pack['material'].toString().replaceAll('en:', '')}",
+                "Matériau d'emballage difficile à recycler: ${pack['material'].toString().replaceAll('en:', '')}",
               );
             }
           }
@@ -7686,7 +8258,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                   .replaceAll('en:', '')
                   .capitalize();
           warnings.add(
-            "Contient une espÃ¨ce potentiellement menacÃ©e: $ingredient",
+            "Contient une espèce potentiellement menacée: $ingredient",
           );
         }
       }
@@ -7740,28 +8312,27 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
         _malusPoints = maluses;
         _environmentalWarnings = warnings;
         _lifecycleSummary =
-            "Analyse basÃ©e sur les donnÃ©es officielles Eco-Score. L'impact est calculÃ© en fonction de l'origine des ingrÃ©dients, des mÃ©thodes de production, de l'emballage et des labels.";
+            "Analyse basée sur les données officielles Eco-Score. L'impact est calculé en fonction de l'origine des ingrédients, des méthodes de production, de l'emballage et des labels.";
       });
     } else {
       setState(() => _isEcoScoreEstimated = true);
       if (rawIngredients.isNotEmpty) {
-        await _analyzeEnvironmentalImpactWithDeepSeek(
+        await _analyzeEnvironmentalImpactWithAI(
           productName,
           rawIngredients,
           category,
         );
       } else {
-        await _deduceEnvironmentalImpactWithDeepSeek(productName, category);
+        await _deduceEnvironmentalImpactWithAI(productName, category);
       }
     }
   }
 
-  Future<void> _runDeepSeekEnvironmentalAnalysis(
+  Future<void> _runAiEnvironmentalAnalysis(
     String prompt, {
     bool isGlobalScore = false,
   }) async {
-    // Increment API call counter
-    await widget.usageTrackerService.incrementDeepSeekApiCall();
+    // Increment handled by backend Cloud Function
     try {
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
@@ -7791,55 +8362,55 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           });
         }
       } else {
-        print('DeepSeek: rÃ©ponse vide pour l\'analyse environnementale.');
+        print('DeepSeek: réponse vide pour l\'analyse environnementale.');
       }
     } catch (e) {
-      print('Erreur lors de l\'appel Ã  DeepSeek (Environnement): $e');
+      print('Erreur lors de l\'appel à DeepSeek (Environnement): $e');
     }
   }
 
-  Future<void> _analyzeEnvironmentalImpactWithDeepSeek(
+  Future<void> _analyzeEnvironmentalImpactWithAI(
     String productName,
     List<String> ingredients,
     String category,
   ) async {
     final String prompt = '''
-    En tant qu'expert en analyse du cycle de vie des aliments, analyse l'impact environnemental du produit "$productName" (catÃ©gorie: "$category") basÃ© sur sa liste d'ingrÃ©dients: "${ingredients.join(', ')}".
+    En tant qu'expert en analyse du cycle de vie des aliments, analyse l'impact environnemental du produit "$productName" (catégorie: "$category") basé sur sa liste d'ingrédients: "${ingredients.join(', ')}".
 
-    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact, E = TrÃ¨s fort impact).
-    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact, 100 = TrÃ¨s faible impact).
-    - "lifecycle_summary": Un rÃ©sumÃ© dÃ©taillÃ© de l'analyse du cycle de vie. Justifie ton estimation en te basant sur les ingrÃ©dients fournis (ex: "La prÃ©sence de boeuf augmente fortement l'empreinte carbone...", "Le transport de cacao a un impact significatif...").
-    - "co2_emissions": Une estimation textuelle des Ã©missions de CO2. Exemple: "EstimÃ© Ã  1.5 kg COâ‚‚eq / kg de produit". Si impossible, mets null.
-    - "bonus_points": Une liste de 2-3 points positifs potentiels basÃ©s sur les ingrÃ©dients ou le processus. (Ex: "Agriculture biologique", "Emballage recyclable").
-    - "malus_points": Une liste de 2-3 points nÃ©gatifs probables basÃ©s sur les ingrÃ©dients ou le processus. (Ex: "IngrÃ©dients importÃ©s de loin", "Emballage non recyclable").
-    - "perspective": Un court paragraphe de mise en perspective comparant l'impact de ce produit Ã  des produits similaires ou d'autres catÃ©gories. (Ex: "Bien que son score soit moyen, son impact reste bien infÃ©rieur Ã  celui de la viande rouge...", ou "En tant que produit transformÃ©, son impact est plus Ã©levÃ© que celui des lÃ©gumes bruts.").
-    - "warnings": Une liste de points de vigilance importants. Identifie les ingrÃ©dients ou aspects pouvant Ãªtre liÃ©s Ã  des problÃ©matiques sensibles (dÃ©forestation, surpÃªche, espÃ¨ces menacÃ©es, utilisation excessive de pesticides). Sois prudent et factuel. (Ex: "L'huile de palme est souvent associÃ©e Ã  la dÃ©forestation.", "Le thon peut provenir de stocks menacÃ©s.").
+    Fournis une réponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A à E (A = Très faible impact, E = Très fort impact).
+    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact, 100 = Très faible impact).
+    - "lifecycle_summary": Un résumé détaillé de l'analyse du cycle de vie. Justifie ton estimation en te basant sur les ingrédients fournis (ex: "La présence de boeuf augmente fortement l'empreinte carbone...", "Le transport de cacao a un impact significatif...").
+    - "co2_emissions": Une estimation textuelle des émissions de CO2. Exemple: "Estimé à 1.5 kg CO₂eq / kg de produit". Si impossible, mets null.
+    - "bonus_points": Une liste de 2-3 points positifs potentiels basés sur les ingrédients ou le processus. (Ex: "Agriculture biologique", "Emballage recyclable").
+    - "malus_points": Une liste de 2-3 points négatifs probables basés sur les ingrédients ou le processus. (Ex: "Ingrédients importés de loin", "Emballage non recyclable").
+    - "perspective": Un court paragraphe de mise en perspective comparant l'impact de ce produit à des produits similaires ou d'autres catégories. (Ex: "Bien que son score soit moyen, son impact reste bien inférieur à celui de la viande rouge...", ou "En tant que produit transformé, son impact est plus élevé que celui des légumes bruts.").
+    - "warnings": Une liste de points de vigilance importants. Identifie les ingrédients ou aspects pouvant être liés à des problématiques sensibles (déforestation, surpêche, espèces menacées, utilisation excessive de pesticides). Sois prudent et factuel. (Ex: "L'huile de palme est souvent associée à la déforestation.", "Le thon peut provenir de stocks menacés.").
     ''';
-    await _runDeepSeekEnvironmentalAnalysis(prompt);
+    await _runAiEnvironmentalAnalysis(prompt);
   }
 
-  Future<void> _deduceEnvironmentalImpactWithDeepSeek(
+  Future<void> _deduceEnvironmentalImpactWithAI(
     String productName,
     String category,
   ) async {
     final String prompt = '''
-    En tant qu'expert en analyse du cycle de vie des aliments, DÃ‰DUIS l'impact environnemental probable du produit "$productName" (catÃ©gorie: "$category"), pour lequel la liste d'ingrÃ©dients est manquante. Base-toi sur les ingrÃ©dients et processus typiques de cette catÃ©gorie.
+    En tant qu'expert en analyse du cycle de vie des aliments, DÉDUIS l'impact environnemental probable du produit "$productName" (catégorie: "$category"), pour lequel la liste d'ingrédients est manquante. Base-toi sur les ingrédients et processus typiques de cette catégorie.
 
-    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact, E = TrÃ¨s fort impact).
-    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact, 100 = TrÃ¨s faible impact).
-    - "lifecycle_summary": Un rÃ©sumÃ© dÃ©taillÃ© de l'analyse du cycle de vie dÃ©duite. Justifie ton estimation en mentionnant les ingrÃ©dients probables (ex: "Contient probablement de l'huile de palme et du sucre dont la production peut avoir un impact...", "Le transport de ces produits transformÃ©s augmente l'empreinte.").
-    - "co2_emissions": Une estimation textuelle des Ã©missions de CO2. Exemple: "Environ 0.8 kg COâ‚‚eq / kg de produit". Si impossible, mets null.
-    - "bonus_points": Une liste de 2-3 points positifs potentiels basÃ©s sur ta dÃ©duction.
-    - "malus_points": Une liste de 2-3 points nÃ©gatifs probables basÃ©s sur ta dÃ©duction.
-    - "perspective": Un court paragraphe de mise en perspective comparant l'impact probable de ce produit Ã  des produits similaires ou d'autres catÃ©gories. (Ex: "L'impact d'une pÃ¢te Ã  tartiner est gÃ©nÃ©ralement Ã©levÃ© Ã  cause du cacao et de l'huile de palme, mais reste infÃ©rieur Ã  celui de la plupart des produits carnÃ©s.").
-    - "warnings": Une liste de points de vigilance probables (ex: "Forte probabilitÃ© de contenir de l'huile de palme, associÃ©e Ã  la dÃ©forestation.", "PrÃ©sence probable de substances controversÃ©es.").
+    Fournis une réponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A à E (A = Très faible impact, E = Très fort impact).
+    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact, 100 = Très faible impact).
+    - "lifecycle_summary": Un résumé détaillé de l'analyse du cycle de vie déduite. Justifie ton estimation en mentionnant les ingrédients probables (ex: "Contient probablement de l'huile de palme et du sucre dont la production peut avoir un impact...", "Le transport de ces produits transformés augmente l'empreinte.").
+    - "co2_emissions": Une estimation textuelle des émissions de CO2. Exemple: "Environ 0.8 kg CO₂eq / kg de produit". Si impossible, mets null.
+    - "bonus_points": Une liste de 2-3 points positifs potentiels basés sur ta déduction.
+    - "malus_points": Une liste de 2-3 points négatifs probables basés sur ta déduction.
+    - "perspective": Un court paragraphe de mise en perspective comparant l'impact probable de ce produit à des produits similaires ou d'autres catégories. (Ex: "L'impact d'une pâte à tartiner est généralement élevé à cause du cacao et de l'huile de palme, mais reste inférieur à celui de la plupart des produits carnés.").
+    - "warnings": Une liste de points de vigilance probables (ex: "Forte probabilité de contenir de l'huile de palme, associée à la déforestation.", "Présence probable de substances controversées.").
     ''';
-    await _runDeepSeekEnvironmentalAnalysis(prompt);
+    await _runAiEnvironmentalAnalysis(prompt);
   }
 
-  Future<void> _analyzeGlobalEnvironmentalImpactWithDeepSeek(
+  Future<void> _analyzeGlobalEnvironmentalImpactWithAI(
     String productName,
     List<String> rawIngredients,
     String category,
@@ -7847,23 +8418,23 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   ) async {
     String ingredientsList =
         rawIngredients.isEmpty
-            ? "liste des ingrÃ©dients non fournie"
+            ? "liste des ingrédients non fournie"
             : rawIngredients.join(', ');
 
     final String prompt = '''
-    En tant qu'expert en impact environnemental alimentaire global, Ã©value l'Ã©co-score GLOBAL du produit "$productName" (catÃ©gorie: "$category", ingrÃ©dients: "$ingredientsList", statut vÃ©gÃ©tarien/vÃ©gÃ©talien connu: "$knownVegStatus").
+    En tant qu'expert en impact environnemental alimentaire global, évalue l'éco-score GLOBAL du produit "$productName" (catégorie: "$category", ingrédients: "$ingredientsList", statut végétarien/végétalien connu: "$knownVegStatus").
 
-    Ta mission est de fournir une note qui reflÃ¨te l'impact rÃ©el de ce produit par rapport Ã  l'ENSEMBLE du systÃ¨me alimentaire, et pas seulement par rapport Ã  sa propre catÃ©gorie. Tu dois comparer son impact Ã  celui d'autres grandes catÃ©gories comme les lÃ©gumes frais, les lÃ©gumineuses, la volaille, la viande rouge (bÅ“uf), les produits laitiers, et les aliments ultra-transformÃ©s. Par exemple, une pÃ¢te Ã  tartiner (cacao, huile de palme) et un steak hachÃ© industriel ont tous deux des impacts nÃ©gatifs, mais tu dois dÃ©terminer lequel est globalement plus dommageable pour la planÃ¨te et justifier pourquoi.
+    Ta mission est de fournir une note qui reflète l'impact réel de ce produit par rapport à l'ENSEMBLE du système alimentaire, et pas seulement par rapport à sa propre catégorie. Tu dois comparer son impact à celui d'autres grandes catégories comme les légumes frais, les légumineuses, la volaille, la viande rouge (bœuf), les produits laitiers, et les aliments ultra-transformés. Par exemple, une pâte à tartiner (cacao, huile de palme) et un steak haché industriel ont tous deux des impacts négatifs, mais tu dois déterminer lequel est globalement plus dommageable pour la planète et justifier pourquoi.
 
-    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir :
-    - "eco_score_grade": Une lettre de A Ã  E (A = TrÃ¨s faible impact global, E = TrÃ¨s fort impact global).
-    - "eco_score_value": Une note chiffrÃ©e de 0 Ã  100 (0 = TrÃ¨s fort impact global, 100 = TrÃ¨s faible impact global).
-    - "justification": Un paragraphe dÃ©taillÃ© expliquant la note globale. Commence par situer le produit sur le spectre global de l'impact alimentaire. Ensuite, justifie en comparant explicitement le produit Ã  d'autres catÃ©gories. Par exemple: "Ce produit carnÃ© a un impact intrinsÃ¨quement Ã©levÃ© comparÃ© aux alternatives vÃ©gÃ©tales, mÃªme si sa production est optimisÃ©e. L'Ã©levage bovin est un contributeur majeur au mÃ©thane, un gaz Ã  effet de serre bien plus puissant que le CO2, et requiert d'Ã©normes surfaces agricoles, contribuant Ã  la dÃ©forestation. Son impact est donc bien supÃ©rieur Ã  celui des plats prÃ©parÃ©s vÃ©gÃ©tariens, malgrÃ© leur transformation." ou "Bien que ce produit soit ultra-transformÃ© et contienne des ingrÃ©dients comme l'huile de palme potentiellement liÃ©s Ã  la dÃ©forestation, son impact global reste infÃ©rieur Ã  celui de la plupart des produits d'origine animale comme le fromage ou la viande rouge, en raison des Ã©missions de gaz Ã  effet de serre et de l'utilisation des terres beaucoup plus faibles."
+    Fournis une réponse au format JSON strict. Le JSON doit contenir :
+    - "eco_score_grade": Une lettre de A à E (A = Très faible impact global, E = Très fort impact global).
+    - "eco_score_value": Une note chiffrée de 0 à 100 (0 = Très fort impact global, 100 = Très faible impact global).
+    - "justification": Un paragraphe détaillé expliquant la note globale. Commence par situer le produit sur le spectre global de l'impact alimentaire. Ensuite, justifie en comparant explicitement le produit à d'autres catégories. Par exemple: "Ce produit carné a un impact intrinsèquement élevé comparé aux alternatives végétales, même si sa production est optimisée. L'élevage bovin est un contributeur majeur au méthane, un gaz à effet de serre bien plus puissant que le CO2, et requiert d'énormes surfaces agricoles, contribuant à la déforestation. Son impact est donc bien supérieur à celui des plats préparés végétariens, malgré leur transformation." ou "Bien que ce produit soit ultra-transformé et contienne des ingrédients comme l'huile de palme potentiellement liés à la déforestation, son impact global reste inférieur à celui de la plupart des produits d'origine animale comme le fromage ou la viande rouge, en raison des émissions de gaz à effet de serre et de l'utilisation des terres beaucoup plus faibles."
     ''';
-    await _runDeepSeekEnvironmentalAnalysis(prompt, isGlobalScore: true);
+    await _runAiEnvironmentalAnalysis(prompt, isGlobalScore: true);
   }
 
-  Future<void> _analyzeProductWithDeepSeek(
+  Future<void> _analyzeProductMegaPromptWithAI(
     String productName,
     List<String> rawIngredients,
     String category,
@@ -7871,26 +8442,111 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   ) async {
     if (rawIngredients.isEmpty) {
       setState(() {
-        _deepSeekSummary =
-            "Analyse des ingrÃ©dients impossible car la liste n'est pas fournie.";
+        _aiSummary = "Analyse impossible (liste d'ingrédients manquante).";
       });
       return;
     }
-    await widget.usageTrackerService.incrementDeepSeekApiCall();
+
     final String ingredientsList = rawIngredients.join(', ');
     final String prompt = '''
-    En tant qu'expert en nutrition et alimentation, analyse le produit "$productName" avec les ingrÃ©dients suivants: "$ingredientsList". Le statut connu est "$knownVegStatus".
-    IMPORTANT: N'analyse PAS les additifs (codes E) dans la liste 'analyzed_ingredients', ils sont gÃ©rÃ©s sÃ©parÃ©ment. Concentre-toi sur les autres ingrÃ©dients.
+    En tant qu'expert mondial en nutrition, santé et analyse du cycle de vie (ACV) des aliments, analyse le produit "$productName" (catégorie: "$category", statut végétarien: "$knownVegStatus") avec les ingrédients: "$ingredientsList".
 
-    Fournis une rÃ©ponse au format JSON strict. Le JSON doit contenir:
-    - "analyzed_ingredients": Une liste oÃ¹ chaque Ã©lÃ©ment est un objet pour les ingrÃ©dients NON-ADDITIFS avec:
-        - "name": Le nom de l'ingrÃ©dient.
-        - "description": Une brÃ¨ve description de son rÃ´le et son impact sur la santÃ©.
-        - "category": Une catÃ©gorie simple ("Sucre", "CÃ©rÃ©ale", "Huile VÃ©gÃ©tale", "Sel", "Fruit", "LÃ©gume", "Autre").
-        - "health_score": Une note de santÃ© de 1 Ã  5 (1=TrÃ¨s mauvais, 5=TrÃ¨s bon).
-    - "overall_health_verdict": Un verdict global concis ("Excellent", "Bon", "Moyen", "MÃ©diocre", "Ã€ Ã©viter").
-    - "health_summary": Un rÃ©sumÃ© de 2-3 phrases expliquant le verdict, en mettant en avant les points forts et faibles.
-    - "vegetarian_status_analysis": Un objet avec "status" ('vegan', 'vegetarian', ou 'non-vegetarian') et "justification" dÃ©duisant le statut le plus probable en te basant sur les ingrÃ©dients, surtout si le statut connu est "unknown". Justifie briÃ¨vement.
+    Tu dois fournir une analyse COMPLÈTE en un seul rapport JSON strict respectant EXACTEMENT cette structure :
+    {
+      "health_analysis": {
+        "analyzed_ingredients": [ {"name": "ing1", "description": "role", "category": "Sucre", "health_score": 3} ],
+        "overall_health_verdict": "Bon",
+        "health_summary": "Résumé santé en 2 phrases",
+        "vegetarian_status_analysis": {"status": "vegetarian", "justification": "..."}
+      },
+      "environmental_analysis": {
+        "eco_score_grade": "B",
+        "eco_score_value": 75.0,
+        "global_eco_score_grade": "B",
+        "global_eco_score_value": 70.0,
+        "global_justification": "Comparaison globale vs autres catégories (viande, légumes, etc.)",
+        "lifecycle_summary": "Analyse ACV basée sur les ingrédients",
+        "co2_emissions": "1.2 kg CO2eq / kg",
+        "bonus_points": ["Label Bio"],
+        "malus_points": ["Emballage plastique"],
+        "perspective": "Mise en perspective écologique",
+        "warnings": ["Huile de palme (déforestation)"]
+      }
+    }
+    ''';
+
+    try {
+      final result = await SL.aiService.fetchJSONResponse(
+        prompt: prompt,
+        temperature: 0.4,
+      );
+      if (result != null) {
+        final health = result['health_analysis'] as Map<String, dynamic>? ?? {};
+        final env = result['environmental_analysis'] as Map<String, dynamic>? ?? {};
+
+        setState(() {
+          // --- PARSING SANTÉ ---
+          _analyzedIngredients = List<Map<String, dynamic>>.from(
+            health['analyzed_ingredients'] ?? [],
+          );
+          _aiOverallHealthVerdict =
+              health['overall_health_verdict'] as String?;
+          _aiSummary = health['health_summary'] as String?;
+          if (_vegetarianStatus == 'unknown') {
+            _vegetarianStatus =
+                (health['vegetarian_status_analysis'] as Map?)?['status']
+                    as String? ??
+                'unknown';
+          }
+
+          // --- PARSING ENVIRONNEMENT ---
+          _ecoScoreGrade = env['eco_score_grade'] as String?;
+          _ecoScoreValue = safeParseDouble(env['eco_score_value']);
+          _globalEcoScoreGrade = env['global_eco_score_grade'] as String?;
+          _globalEcoScoreValue = safeParseDouble(env['global_eco_score_value']);
+          _globalEcoScoreJustification =
+              env['global_justification'] as String?;
+          _lifecycleSummary = env['lifecycle_summary'] as String?;
+          _co2Info = env['co2_emissions'] as String?;
+          _bonusPoints = env['bonus_points'] as List<dynamic>?;
+          _malusPoints = env['malus_points'] as List<dynamic>?;
+          _environmentalPerspective = env['perspective'] as String?;
+          _environmentalWarnings = env['warnings'] as List<dynamic>?;
+          _isEcoScoreEstimated = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('Erreur Mega-Prompt IA: $e');
+    }
+  }
+
+  Future<void> _analyzeProductWithAI(
+    String productName,
+    List<String> rawIngredients,
+    String category,
+    String knownVegStatus,
+  ) async {
+    if (rawIngredients.isEmpty) {
+      setState(() {
+        _aiSummary =
+            "Analyse des ingrédients impossible car la liste n'est pas fournie.";
+      });
+      return;
+    }
+    final String ingredientsList = rawIngredients.join(', ');
+    final String prompt = '''
+    En tant qu'expert en nutrition et alimentation, analyse le produit "$productName" avec les ingrédients suivants: "$ingredientsList". Le statut connu est "$knownVegStatus".
+    IMPORTANT: N'analyse PAS les additifs (codes E) dans la liste 'analyzed_ingredients', ils sont gérés séparément. Concentre-toi sur les autres ingrédients.
+
+    Fournis une réponse au format JSON strict. Le JSON doit contenir:
+    - "analyzed_ingredients": Une liste où chaque élément est un objet pour les ingrédients NON-ADDITIFS avec:
+        - "name": Le nom de l'ingrédient.
+        - "description": Une brève description de son rôle et son impact sur la santé.
+        - "category": Une catégorie simple ("Sucre", "Céréale", "Huile Végétale", "Sel", "Fruit", "Légume", "Autre").
+        - "health_score": Une note de santé de 1 à 5 (1=Très mauvais, 5=Très bon).
+    - "overall_health_verdict": Un verdict global concis ("Excellent", "Bon", "Moyen", "Médiocre", "À éviter").
+    - "health_summary": Un résumé de 2-3 phrases expliquant le verdict, en mettant en avant les points forts et faibles.
+    - "vegetarian_status_analysis": Un objet avec "status" ('vegan', 'vegetarian', ou 'non-vegetarian') et "justification" déduisant le statut le plus probable en te basant sur les ingrédients, surtout si le statut connu est "unknown". Justifie brièvement.
     ''';
     try {
       final result = await SL.aiService.fetchJSONResponse(
@@ -7903,18 +8559,18 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           _analyzedIngredients = List<Map<String, dynamic>>.from(
             result['analyzed_ingredients'],
           );
-          _deepSeekOverallHealthVerdict = result['overall_health_verdict'];
-          _deepSeekSummary = result['health_summary'];
+          _aiOverallHealthVerdict = result['overall_health_verdict'];
+          _aiSummary = result['health_summary'];
           if (_vegetarianStatus == 'unknown') {
             _vegetarianStatus =
                 result['vegetarian_status_analysis']?['status'] ?? 'unknown';
           }
         });
       } else {
-        print('DeepSeek: rÃ©ponse vide pour l\'analyse des ingrÃ©dients.');
+        print('IA: réponse vide pour l\'analyse des ingrédients.');
       }
     } catch (e) {
-      print('Erreur lors de l\'appel Ã  DeepSeek (IngrÃ©dients): $e');
+      print('Erreur lors de l\'appel à l\'IA (Ingrédients): $e');
     }
   }
 
@@ -7930,26 +8586,26 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       baseScore += _categoryHealthScore!;
       scoreCount++;
     }
-    if (_deepSeekOverallHealthVerdict != null) {
-      double deepSeekIngrScore = 0.0;
-      switch (_deepSeekOverallHealthVerdict?.toLowerCase()) {
+    if (_aiOverallHealthVerdict != null) {
+      double aiIngrScore = 0.0;
+      switch (_aiOverallHealthVerdict?.toLowerCase()) {
         case 'excellent':
-          deepSeekIngrScore = 9.5;
+          aiIngrScore = 9.5;
           break;
         case 'bon':
-          deepSeekIngrScore = 7.5;
+          aiIngrScore = 7.5;
           break;
         case 'moyen':
-          deepSeekIngrScore = 5.0;
+          aiIngrScore = 5.0;
           break;
-        case 'mÃ©diocre':
-        case 'Ã  Ã©viter':
-          deepSeekIngrScore = 1.0;
+        case 'médiocre':
+        case 'à éviter':
+          aiIngrScore = 1.0;
           break;
         default:
-          deepSeekIngrScore = 5.0;
+          aiIngrScore = 5.0;
       }
-      baseScore += deepSeekIngrScore;
+      baseScore += aiIngrScore;
       scoreCount++;
     }
 
@@ -8081,7 +8737,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('DÃ©tails du Produit'),
+        title: const Text('Détails du Produit'),
         leading: IconButton(
           icon: const Icon(Icons.close),
           onPressed: () => Navigator.pop(context),
@@ -8118,7 +8774,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          '"${_productName!}" ajoutÃ© Ã  votre journal !',
+                          '"${_productName!}" ajouté à votre journal !',
                         ),
                         backgroundColor: Colors.green,
                       ),
@@ -8127,7 +8783,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'Impossible d\'ajouter au journal: donnÃ©es nutritionnelles manquantes.',
+                          'Impossible d\'ajouter au journal: données nutritionnelles manquantes.',
                         ),
                         backgroundColor: Colors.red,
                       ),
@@ -8234,7 +8890,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                             Flexible(
                               child: ScoreCircle(
                                 score: _overallHealthScore!,
-                                title: 'Score SantÃ©',
+                                title: 'Score Santé',
                               ),
                             ),
                           if (_ecoScoreValue != null)
@@ -8276,7 +8932,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                               child: Flexible(
                                 child: ScoreCircle(
                                   score: _categoryHealthScore!,
-                                  title: 'Note CatÃ©gorie',
+                                  title: 'Note Catégorie',
                                 ),
                               ),
                             ),
@@ -8309,7 +8965,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               delegate: _SliverAppBarDelegate(
                 const TabBar(
                   tabs: [
-                    Tab(icon: Icon(Icons.health_and_safety), text: 'SantÃ©'),
+                    Tab(icon: Icon(Icons.health_and_safety), text: 'Santé'),
                     Tab(icon: Icon(Icons.eco), text: 'Environnement'),
                   ],
                 ),
@@ -8360,11 +9016,11 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               ),
             ),
           ),
-        if (_deepSeekSummary != null)
+        if (_aiSummary != null)
           AnalysisCard(
-            title: "Analyse des IngrÃ©dients par l'IA",
-            content: _deepSeekSummary!,
-            verdict: _deepSeekOverallHealthVerdict,
+            title: "Analyse des Ingrédients par l'IA",
+            content: _aiSummary!,
+            verdict: _aiOverallHealthVerdict,
           ),
         if (_nutriments != null)
           NutrimentDetailsCard(
@@ -8382,7 +9038,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Meilleures alternatives dans la mÃªme catÃ©gorie",
+                  "Meilleures alternatives dans la même catégorie",
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 10),
@@ -8392,7 +9048,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                   )
                 else
                   const Text(
-                    "Aucune meilleure alternative trouvÃ©e dans cette catÃ©gorie.",
+                    "Aucune meilleure alternative trouvée dans cette catégorie.",
                     style: TextStyle(color: Colors.grey),
                   ),
               ],
@@ -8441,7 +9097,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
             child: Padding(
               padding: EdgeInsets.all(32.0),
               child: Text(
-                "Aucune donnÃ©e environnementale dÃ©taillÃ©e disponible pour ce produit.",
+                "Aucune donnée environnementale détaillée disponible pour ce produit.",
                 style: TextStyle(color: Colors.grey, fontSize: 16),
               ),
             ),
@@ -8559,9 +9215,8 @@ class _CaloriesTabState extends State<CaloriesTab> {
         temperature: 0.5,
       );
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
         return {
-          'name': result['food_name'] ?? 'Repas estimÃ©',
+          'name': result['food_name'] ?? 'Repas estimé',
           'calories': result['calories'] ?? 0,
           'proteins': (result['proteins'] as num?)?.toDouble() ?? 0.0,
           'carbs': (result['carbs'] as num?)?.toDouble() ?? 0.0,
@@ -8569,14 +9224,14 @@ class _CaloriesTabState extends State<CaloriesTab> {
         };
       }
     } catch (e) {
-      debugPrint('Error calling DeepSeek API: $e');
+      debugPrint('Error calling AI API: $e');
     }
 
     return {
       'name':
           isImage
-              ? 'Repas par photo (IA - Ã©chec)'
-              : 'Repas par texte (IA - Ã©chec)',
+              ? 'Repas par photo (IA - échec)'
+              : 'Repas par texte (IA - échec)',
       'calories': 0,
       'proteins': 0.0,
       'carbs': 0.0,
@@ -8615,7 +9270,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   onChanged: (value) => calories = int.tryParse(value) ?? 0,
                 ),
                 TextField(
-                  decoration: const InputDecoration(labelText: 'ProtÃ©ines (g)'),
+                  decoration: const InputDecoration(labelText: 'Protéines (g)'),
                   keyboardType: TextInputType.number,
                   onChanged:
                       (value) => proteins = double.tryParse(value) ?? 0.0,
@@ -8704,14 +9359,13 @@ class _CaloriesTabState extends State<CaloriesTab> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
+              "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimité !",
             ),
             backgroundColor: Colors.red,
           ),
         );
         return;
       }
-      await widget.usageTrackerService.incrementPhotoAnalysis();
     }
 
     // 2. Recherche dans l'historique des scans des 14 derniers jours
@@ -8744,7 +9398,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '"${historicalProduct.name}" ajoutÃ© depuis l\'historique des scans !',
+              '"${historicalProduct.name}" ajouté depuis l\'historique des scans !',
             ),
             backgroundColor: Colors.green,
           ),
@@ -8783,7 +9437,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '"${offProduct['product_name']}" ajoutÃ© depuis Open Food Facts !',
+              '"${offProduct['product_name']}" ajouté depuis Open Food Facts !',
             ),
             backgroundColor: Colors.green,
           ),
@@ -8792,7 +9446,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
       }
     }
 
-    // 4. Estimation par IA (pour les aliments non trouvÃ©s ou les ingrÃ©dients sans code-barres)
+    // 4. Estimation par IA (pour les aliments non trouvés ou les ingrédients sans code-barres)
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
@@ -8820,7 +9474,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              "Repas estimÃ© et ajoutÃ© par l'IA : ${result['name']} !",
+              "Repas estimé et ajouté par l'IA : ${result['name']} !",
             ),
             backgroundColor: Colors.green,
           ),
@@ -8830,7 +9484,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "L'IA n'a pas pu estimer les calories de maniÃ¨re fiable.",
+              "L'IA n'a pas pu estimer les calories de manière fiable.",
             ),
             backgroundColor: Colors.red,
           ),
@@ -8850,16 +9504,74 @@ class _CaloriesTabState extends State<CaloriesTab> {
   Future<void> _estimateCaloriesFromImage() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.camera);
+    if (image == null) return;
 
-    if (image != null) {
-      _addFoodWithIntelligentInput(image.path, isPhoto: true);
-    } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Aucune image sÃ©lectionnÃ©e."),
-          backgroundColor: Colors.orange,
-        ),
+    // 1. Vérifier les limites Free
+    if (!widget.isPremiumUser) {
+      final photoCount =
+          await widget.usageTrackerService.getPhotoAnalysisCount();
+      if (photoCount >= UserLimits.freePhotoAnalysisPerDay) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Limite de 1 analyse photo IA/jour atteinte."),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Analyse de l'assiette par IA en cours...")),
       );
+    }
+
+    try {
+      // 2. Appel à Gemini Vision (et non DeepSeek)
+      final jsonStr =
+          await SL.mealVision.estimatePortionAndMacros(File(image.path), null);
+      if (jsonStr != null) {
+        final cleanJson =
+            jsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
+        final Map<String, dynamic> data = json.decode(cleanJson);
+
+        widget.addFoodEntry(
+          FoodEntry(
+            name: data['food_name'] ?? 'Repas (Photo IA)',
+            calories: safeParseInt(data['calories']),
+            proteins: safeParseDouble(data['proteins']),
+            carbs: safeParseDouble(data['carbs']),
+            fats: safeParseDouble(data['fats']),
+            timestamp: _selectedDate,
+            isAiEstimated: true,
+            source: 'IA Image (Gemini)',
+            mealType: _deduceMealTypeFromTime(_selectedDate),
+          ),
+        );
+
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Repas estimé par Vision IA !"),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint("Erreur Vision IA: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur analyse image: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -8869,12 +9581,12 @@ class _CaloriesTabState extends State<CaloriesTab> {
 
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
+              "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
             ),
             backgroundColor: Colors.red,
           ),
@@ -8887,7 +9599,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          title: const Text('DÃ©crire votre repas pour l\'IA'),
+          title: const Text('Décrire votre repas pour l\'IA'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -8935,7 +9647,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                 } else {
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text("Veuillez dÃ©crire votre repas."),
+                      content: Text("Veuillez décrire votre repas."),
                       backgroundColor: Colors.red,
                     ),
                   );
@@ -8999,7 +9711,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                     Icons.restaurant_menu,
                     color: Colors.teal,
                   ),
-                  title: const Text('CrÃ©er une recette personnalisÃ©e'),
+                  title: const Text('Créer une recette personnalisée'),
                   onTap: () async {
                     Navigator.pop(ctx);
                     final newRecipeFood = await Navigator.push<FoodEntry>(
@@ -9013,7 +9725,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'Recette ajoutÃ©e : ${newRecipeFood.name}',
+                            'Recette ajoutée : ${newRecipeFood.name}',
                           ),
                           backgroundColor: Colors.green,
                         ),
@@ -9120,7 +9832,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                 _filteredFoodLog.isEmpty
                     ? const Center(
                       child: Text(
-                        'Aucun aliment enregistrÃ© pour ce jour/filtre. Ajoutez-en un !',
+                        'Aucun aliment enregistré pour ce jour/filtre. Ajoutez-en un !',
                         style: TextStyle(fontSize: 16, color: Colors.grey),
                       ),
                     )
@@ -9153,7 +9865,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                                 ),
                                 if (entry.isAiEstimated)
                                   Text(
-                                    'EstimÃ© par IA (${entry.source})',
+                                    'Estimé par IA (${entry.source})',
                                     style: const TextStyle(
                                       fontStyle: FontStyle.italic,
                                       color: Colors.grey,
@@ -9243,7 +9955,7 @@ extension ListExtensions<T> on List<T> {
     return null;
   }
 
-  // MÃ‰THODE AJOUTÃ‰E POUR CORRIGER L'ERREUR
+  // MÉTHODE AJOUTÉE POUR CORRIGER L'ERREUR
   T? lastWhereOrNull(bool Function(T) test) {
     for (var i = length - 1; i >= 0; i--) {
       if (test(this[i])) {
@@ -9255,19 +9967,19 @@ extension ListExtensions<T> on List<T> {
 }
 
 // =============================================================================
-// NOUVELLE PAGE DE JEÃ›NE (REFACTORISÃ‰E)
+// NOUVELLE PAGE DE JEÛNE (REFACTORISÉE)
 // =============================================================================
 
-// --- ModÃ¨les de donnÃ©es pour le jeÃ»ne ---
+// --- Modèles de données pour le jeûne ---
 
 class FastingPlan {
   final String id;
   final String name;
   final String description;
-  final String level; // DÃ©butant, IntermÃ©diaire, AvancÃ©
+  final String level; // Débutant, Intermédiaire, Avancé
   final Duration fastingDuration;
   final Duration eatingDuration;
-  final List<String> goals; // 'Perte de poids', 'DÃ©tox', etc.
+  final List<String> goals; // 'Perte de poids', 'Détox', etc.
   final String exampleSchedule;
   final bool isPremium;
 
@@ -9298,86 +10010,86 @@ class FastingStage {
   });
 }
 
-// --- DonnÃ©es pour les plans et Ã©tapes ---
+// --- Données pour les plans et étapes ---
 final List<FastingPlan> predefinedFastingPlans = [
   FastingPlan(
     id: '12-12',
     name: '12:12 Le Circadien',
     description:
-        'Le point de dÃ©part idÃ©al pour dÃ©couvrir le jeÃ»ne intermittent et aligner son horloge biologique.',
-    level: 'ðŸŸ¢ DÃ©butant',
+        'Le point de départ idéal pour découvrir le jeûne intermittent et aligner son horloge biologique.',
+    level: '🟢 Débutant',
     fastingDuration: const Duration(hours: 12),
     eatingDuration: const Duration(hours: 12),
-    goals: ['Bien-Ãªtre', 'maintain'],
-    exampleSchedule: 'Manger de 7h Ã  19h.',
+    goals: ['Bien-être', 'maintain'],
+    exampleSchedule: 'Manger de 7h à 19h.',
   ),
   FastingPlan(
     id: '14-10',
     name: '14:10 Douce Progression',
     description:
-        'Une Ã©tape douce pour augmenter progressivement la durÃ©e du jeÃ»ne et ses bÃ©nÃ©fices.',
-    level: 'ðŸŸ¢ DÃ©butant',
+        'Une étape douce pour augmenter progressivement la durée du jeûne et ses bénéfices.',
+    level: '🟢 Débutant',
     fastingDuration: const Duration(hours: 14),
     eatingDuration: const Duration(hours: 10),
     goals: ['lose', 'maintain'],
-    exampleSchedule: 'Manger de 8h Ã  18h.',
+    exampleSchedule: 'Manger de 8h à 18h.',
   ),
   FastingPlan(
     id: '16-8',
     name: '16:8 Le Classique',
     description:
-        'Le plan le plus populaire, Ã©quilibrÃ© pour la perte de poids et le bien-Ãªtre mÃ©tabolique.',
-    level: 'ðŸŸ¡ IntermÃ©diaire',
+        'Le plan le plus populaire, équilibré pour la perte de poids et le bien-être métabolique.',
+    level: '🟡 Intermédiaire',
     fastingDuration: const Duration(hours: 16),
     eatingDuration: const Duration(hours: 8),
     goals: ['lose', 'gain'],
-    exampleSchedule: 'Manger de 12h Ã  20h.',
+    exampleSchedule: 'Manger de 12h à 20h.',
   ),
   FastingPlan(
     id: '18-6',
-    name: '18:6 Le ConcentrÃ©',
+    name: '18:6 Le Concentré',
     description:
-        'Approfondit les bÃ©nÃ©fices du 16:8 avec une fenÃªtre d\'alimentation plus courte.',
-    level: 'ðŸŸ¡ IntermÃ©diaire',
+        'Approfondit les bénéfices du 16:8 avec une fenêtre d\'alimentation plus courte.',
+    level: '🟡 Intermédiaire',
     fastingDuration: const Duration(hours: 18),
     eatingDuration: const Duration(hours: 6),
     goals: ['lose', 'gain'],
-    exampleSchedule: 'Manger de 14h Ã  20h.',
+    exampleSchedule: 'Manger de 14h à 20h.',
   ),
   FastingPlan(
     id: '20-4',
     name: '20:4 Le Guerrier',
     description:
-        'Un jeÃ»ne plus intense pour ceux qui cherchent Ã  maximiser l\'autophagie et la perte de graisse.',
-    level: 'ðŸ”´ AvancÃ©',
+        'Un jeûne plus intense pour ceux qui cherchent à maximiser l\'autophagie et la perte de graisse.',
+    level: '🔴 Avancé',
     fastingDuration: const Duration(hours: 20),
     eatingDuration: const Duration(hours: 4),
     goals: ['lose'],
-    exampleSchedule: 'Manger sur une fenÃªtre de 4h.',
+    exampleSchedule: 'Manger sur une fenêtre de 4h.',
     isPremium: true,
   ),
   FastingPlan(
     id: 'omad',
     name: 'OMAD (23:1)',
     description:
-        'Un seul repas par jour. Maximise les effets du jeÃ»ne. RecommandÃ© aux jeÃ»neurs expÃ©rimentÃ©s.',
-    level: 'ðŸ”´ AvancÃ©',
+        'Un seul repas par jour. Maximise les effets du jeûne. Recommandé aux jeûneurs expérimentés.',
+    level: '🔴 Avancé',
     fastingDuration: const Duration(hours: 23),
     eatingDuration: const Duration(hours: 1),
     goals: ['lose'],
-    exampleSchedule: 'Manger sur une fenÃªtre de 1h.',
+    exampleSchedule: 'Manger sur une fenêtre de 1h.',
     isPremium: true,
   ),
   FastingPlan(
     id: '36h',
-    name: 'JeÃ»ne de 36h',
+    name: 'Jeûne de 36h',
     description:
-        'Un jeÃ»ne prolongÃ© (1 jour sur 2) pour un "reset" mÃ©tabolique profond. A n\'effectuer qu\'occasionnellement.',
-    level: 'â­ Expert',
+        'Un jeûne prolongé (1 jour sur 2) pour un "reset" métabolique profond. A n\'effectuer qu\'occasionnellement.',
+    level: '⭐ Expert',
     fastingDuration: const Duration(hours: 36),
     eatingDuration: const Duration(hours: 12),
     goals: ['lose', 'detox'],
-    exampleSchedule: 'JeÃ»ner un jour complet.',
+    exampleSchedule: 'Jeûner un jour complet.',
     isPremium: true,
   ),
 ];
@@ -9386,61 +10098,61 @@ final List<FastingStage> fastingStages = [
   FastingStage(
     title: "Anabolisme (0-4h)",
     description:
-        "Le corps digÃ¨re et utilise l'Ã©nergie du dernier repas. Le taux d'insuline est Ã©levÃ©.",
+        "Le corps digère et utilise l'énergie du dernier repas. Le taux d'insuline est élevé.",
     startHour: const Duration(hours: 0),
     icon: Icons.restaurant,
   ),
   FastingStage(
     title: "Catabolisme (4-12h)",
     description:
-        "Le corps a fini de digÃ©rer. Les rÃ©serves de glycogÃ¨ne sont utilisÃ©es pour l'Ã©nergie. L'insuline baisse.",
+        "Le corps a fini de digérer. Les réserves de glycogène sont utilisées pour l'énergie. L'insuline baisse.",
     startHour: const Duration(hours: 4),
     icon: Icons.battery_charging_full,
   ),
   FastingStage(
-    title: "CÃ©tose (12-16h)",
+    title: "Cétose (12-16h)",
     description:
-        "Les rÃ©serves de glycogÃ¨ne s'Ã©puisent. Le corps commence Ã  brÃ»ler les graisses stockÃ©es (cÃ©tones).",
+        "Les réserves de glycogène s'épuisent. Le corps commence à brûler les graisses stockées (cétones).",
     startHour: const Duration(hours: 12),
     icon: Icons.local_fire_department,
   ),
   FastingStage(
     title: "Autophagie (16h+)",
     description:
-        "Le processus de nettoyage cellulaire dÃ©marre, recyclant les vieilles cellules pour rÃ©gÃ©nÃ©rer le corps.",
+        "Le processus de nettoyage cellulaire démarre, recyclant les vieilles cellules pour régénérer le corps.",
     startHour: const Duration(hours: 16),
     icon: Icons.recycling,
   ),
   FastingStage(
     title: "Hormone de Croissance (24h+)",
     description:
-        "Pic de production de l'hormone de croissance, favorisant la rÃ©paration musculaire et la combustion des graisses.",
+        "Pic de production de l'hormone de croissance, favorisant la réparation musculaire et la combustion des graisses.",
     startHour: const Duration(hours: 24),
     icon: Icons.trending_up,
   ),
   FastingStage(
-    title: "RÃ©gÃ©nÃ©ration (36h+)",
+    title: "Régénération (36h+)",
     description:
-        "L'autophagie est Ã  son maximum, favorisant une rÃ©gÃ©nÃ©ration cellulaire profonde.",
+        "L'autophagie est à son maximum, favorisant une régénération cellulaire profonde.",
     startHour: const Duration(hours: 36),
     icon: Icons.health_and_safety,
   ),
 ];
 
 // =============================================================================
-// NOUVEAUX MODÃˆLES DE DONNÃ‰ES POUR LE PROGRAMME DE JEÃ›NE
+// NOUVEAUX MODÈLES DE DONNÉES POUR LE PROGRAMME DE JEÛNE
 // =============================================================================
 
-/// ReprÃ©sente le statut d'un jeÃ»ne planifiÃ© dans le programme.
+/// Représente le statut d'un jeûne planifié dans le programme.
 enum FastingStatus {
-  scheduled, // PrÃ©vu mais pas encore fait
-  completedSuccess, // TerminÃ© avec succÃ¨s (objectif atteint ou dÃ©passÃ©)
-  completedPartial, // TerminÃ© mais sans atteindre l'objectif de durÃ©e
-  skipped, // Jour passÃ© sans que le jeÃ»ne ait Ã©tÃ© fait
-  adhoc, // Un jeÃ»ne non prÃ©vu qui a Ã©tÃ© ajoutÃ©
+  scheduled, // Prévu mais pas encore fait
+  completedSuccess, // Terminé avec succès (objectif atteint ou dépassé)
+  completedPartial, // Terminé mais sans atteindre l'objectif de durée
+  skipped, // Jour passé sans que le jeûne ait été fait
+  adhoc, // Un jeûne non prévu qui a été ajouté
 }
 
-/// ReprÃ©sente une seule entrÃ©e de jeÃ»ne dans le programme mensuel.
+/// Représente une seule entrée de jeûne dans le programme mensuel.
 class FastingProgramEntry {
   final DateTime date;
   final Duration targetDuration;
@@ -9478,7 +10190,7 @@ class FastingProgramEntry {
       );
 }
 
-/// ReprÃ©sente le programme de jeÃ»ne complet pour un mois.
+/// Représente le programme de jeûne complet pour un mois.
 class MonthlyFastingProgram {
   final String id; // Format 'YYYY-MM'
   final List<FastingProgramEntry> entries;
@@ -9510,10 +10222,10 @@ class MonthlyFastingProgram {
 }
 
 // =============================================================================
-// NOUVEAU SERVICE POUR LA GÃ‰NÃ‰RATION DU PROGRAMME DE JEÃ›NE
+// NOUVEAU SERVICE POUR LA GÉNÉRATION DU PROGRAMME DE JEÛNE
 // =============================================================================
 
-// NOUVEAU SERVICE POUR LA GÃ‰NÃ‰RATION DU PROGRAMME DE JEÃ›NE
+// NOUVEAU SERVICE POUR LA GÉNÉRATION DU PROGRAMME DE JEÛNE
 class FastingProgramService {
   final UserProfile userProfile;
   final DailyGoal goals;
@@ -9525,8 +10237,8 @@ class FastingProgramService {
     required this.isVip,
   });
 
-  /// Point d'entrÃ©e principal pour gÃ©nÃ©rer le programme du mois.
-  /// L'adherenceRate (0.0 Ã  1.0) permet d'ajuster la difficultÃ©.
+  /// Point d'entrée principal pour générer le programme du mois.
+  /// L'adherenceRate (0.0 à 1.0) permet d'ajuster la difficulté.
   MonthlyFastingProgram generateProgramForCurrentMonth({
     double adherenceRate = 1.0,
   }) {
@@ -9537,7 +10249,7 @@ class FastingProgramService {
     );
   }
 
-  /// GÃ©nÃ¨re un programme pour un mois spÃ©cifique.
+  /// Génère un programme pour un mois spécifique.
   MonthlyFastingProgram generateProgramForMonth({
     required DateTime targetMonth,
     double adherenceRate = 1.0,
@@ -9546,7 +10258,7 @@ class FastingProgramService {
     final daysInMonth =
         DateTime(targetMonth.year, targetMonth.month + 1, 0).day;
 
-    // Pour les VIP, on simule une gÃ©nÃ©ration par IA plus complexe
+    // Pour les VIP, on simule une génération par IA plus complexe
     return _generateSmartProgram(
       monthId,
       targetMonth,
@@ -9555,7 +10267,7 @@ class FastingProgramService {
     );
   }
 
-  /// GÃ©nÃ©ration intelligente pour tous les utilisateurs, avec plus de fonctionnalitÃ©s pour les VIP.
+  /// Génération intelligente pour tous les utilisateurs, avec plus de fonctionnalités pour les VIP.
   MonthlyFastingProgram _generateSmartProgram(
     String monthId,
     DateTime now,
@@ -9565,7 +10277,7 @@ class FastingProgramService {
     final List<FastingProgramEntry> entries = [];
     final random = Random();
 
-    // 1. DÃ©finir la difficultÃ© de base selon l'expÃ©rience de l'utilisateur
+    // 1. Définir la difficulté de base selon l'expérience de l'utilisateur
     List<String> allowedPlans;
     switch (userProfile.fastingExperience) {
       case 'expert':
@@ -9580,7 +10292,7 @@ class FastingProgramService {
         break;
     }
 
-    // 2. DÃ©finir la frÃ©quence de base selon l'objectif principal
+    // 2. Définir la fréquence de base selon l'objectif principal
     int baseFastsPerWeek;
     switch (goals.weightGoalType) {
       case 'lose':
@@ -9590,7 +10302,7 @@ class FastingProgramService {
         baseFastsPerWeek = 2;
         allowedPlans.removeWhere(
           (p) => p == '20-4' || p == 'omad',
-        ); // Ã‰viter les jeÃ»nes longs pour la prise de masse
+        ); // Éviter les jeûnes longs pour la prise de masse
         break;
       case 'maintain':
       default:
@@ -9598,19 +10310,19 @@ class FastingProgramService {
         break;
     }
 
-    // 3. Ajuster la frÃ©quence en fonction du taux de suivi (adherenceRate)
+    // 3. Ajuster la fréquence en fonction du taux de suivi (adherenceRate)
     int adjustedFastsPerWeek = baseFastsPerWeek;
     if (adherenceRate < 0.5) {
-      // Si l'utilisateur a du mal Ã  suivre
+      // Si l'utilisateur a du mal à suivre
       adjustedFastsPerWeek = (baseFastsPerWeek - 1).clamp(1, 7);
       // On retire le plan le plus difficile pour ce cycle
       if (allowedPlans.length > 1) allowedPlans.removeLast();
     } else if (adherenceRate > 0.85 && random.nextBool()) {
-      // Si l'utilisateur suit trÃ¨s bien
+      // Si l'utilisateur suit très bien
       adjustedFastsPerWeek = (baseFastsPerWeek + 1).clamp(1, 7);
     }
 
-    // 4. GÃ©nÃ©rer les entrÃ©es pour le mois
+    // 4. Générer les entrées pour le mois
     for (int day = 1; day <= daysInMonth; day++) {
       if (random.nextInt(7) < adjustedFastsPerWeek) {
         final date = DateTime(now.year, now.month, day);
@@ -9626,7 +10338,7 @@ class FastingProgramService {
       }
     }
 
-    // Pour inciter au passage VIP, on ajoute un jeÃ»ne "premium" par mois si non-VIP
+    // Pour inciter au passage VIP, on ajoute un jeûne "premium" par mois si non-VIP
     if (!isVip && entries.length < daysInMonth) {
       final premiumPlan = predefinedFastingPlans.firstWhereOrNull(
         (p) => p.isPremium,
@@ -9656,7 +10368,7 @@ class FastingProgramService {
   }
 }
 
-/// Enum pour les jours de la semaine (pour la lisibilitÃ©)
+/// Enum pour les jours de la semaine (pour la lisibilité)
 class DayOfWeek {
   static const int monday = 1;
   static const int tuesday = 2;
@@ -9668,7 +10380,7 @@ class DayOfWeek {
 }
 
 // =============================================================================
-// CLASSE FastingTab ENTIÃˆREMENT RÃ‰Ã‰CRITE
+// CLASSE FastingTab ENTIÈREMENT RÉÉCRITE
 // =============================================================================
 
 class FastingTab extends StatefulWidget {
@@ -9696,7 +10408,7 @@ class FastingTab extends StatefulWidget {
 }
 
 class _FastingTabState extends State<FastingTab> {
-  // --- State pour le timer de jeÃ»ne actif ---
+  // --- State pour le timer de jeûne actif ---
   Timer? _timer;
   bool _isFastingActive = false;
   DateTime? _fastStartTime;
@@ -9719,7 +10431,7 @@ class _FastingTabState extends State<FastingTab> {
   @override
   void didUpdateWidget(covariant FastingTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Si l'objectif change, on rÃ©gÃ©nÃ¨re tous les programmes futurs
+    // Si l'objectif change, on régénère tous les programmes futurs
     if (oldWidget.currentGoals.weightGoalType !=
             widget.currentGoals.weightGoalType ||
         oldWidget.currentGoals.targetWeight !=
@@ -9731,7 +10443,7 @@ class _FastingTabState extends State<FastingTab> {
   Future<void> _regenerateAllPrograms() async {
     if (!mounted) return;
     setState(() => _isLoadingProgram = true);
-    // Supprimer les programmes existants et rÃ©gÃ©nÃ©rer sur 3 mois
+    // Supprimer les programmes existants et régénérer sur 3 mois
     await _generateProgramsForUpcomingMonths(
       numMonths: 3,
       forceRegenerate: true,
@@ -9740,7 +10452,7 @@ class _FastingTabState extends State<FastingTab> {
     if (mounted) setState(() => _isLoadingProgram = false);
   }
 
-  /// GÃ©nÃ¨re les programmes pour les N prochains mois (sans Ã©craser si dÃ©jÃ  existants).
+  /// Génère les programmes pour les N prochains mois (sans écraser si déjà existants).
   Future<void> _generateProgramsForUpcomingMonths({
     int numMonths = 3,
     bool forceRegenerate = false,
@@ -9780,7 +10492,7 @@ class _FastingTabState extends State<FastingTab> {
               .set(newProgram.toFirestore());
         }
       } catch (e) {
-        print("Erreur gÃ©nÃ©ration mois $monthId: $e");
+        print("Erreur génération mois $monthId: $e");
       }
     }
   }
@@ -9801,13 +10513,13 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   // =======================================================================
-  // GESTION DU PROGRAMME MENSUEL (MODIFIÃ‰)
+  // GESTION DU PROGRAMME MENSUEL (MODIFIÉ)
   // =======================================================================
 
-  /// NOUVEAU: Calcule le taux de suivi des jours passÃ©s ce mois-ci.
+  /// NOUVEAU: Calcule le taux de suivi des jours passés ce mois-ci.
   double _calculateAdherenceRate() {
     if (_currentMonthProgram == null) {
-      return 1.0; // Taux par dÃ©faut pour un nouveau programme
+      return 1.0; // Taux par défaut pour un nouveau programme
     }
 
     final today = DateTime(
@@ -9821,7 +10533,7 @@ class _FastingTabState extends State<FastingTab> {
             .toList();
 
     if (pastEntries.isEmpty) {
-      return 1.0; // Pas encore de jour passÃ©, on ne pÃ©nalise pas
+      return 1.0; // Pas encore de jour passé, on ne pénalise pas
     }
 
     final successfulEntries =
@@ -9876,7 +10588,7 @@ class _FastingTabState extends State<FastingTab> {
       }
       _updatePastProgramEntries();
     } catch (e) {
-      print("Erreur lors du chargement/gÃ©nÃ©ration du programme de jeÃ»ne: $e");
+      print("Erreur lors du chargement/génération du programme de jeûne: $e");
     }
   }
 
@@ -9900,7 +10612,7 @@ class _FastingTabState extends State<FastingTab> {
 
     if (needsUpdate) {
       setState(() {
-        /* Met Ã  jour l'UI avec le statut 'skipped' */
+        /* Met à jour l'UI avec le statut 'skipped' */
       });
       if (widget.firestoreService.userId != null) {
         final monthId = DateFormat('yyyy-MM').format(_focusedDay);
@@ -9915,7 +10627,7 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   // =======================================================================
-  // GESTION DU JEÃ›NE ACTIF (TIMER)
+  // GESTION DU JEÛNE ACTIF (TIMER)
   // =======================================================================
 
   Future<void> _loadActiveFastingStateFromPrefs() async {
@@ -9991,7 +10703,7 @@ class _FastingTabState extends State<FastingTab> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          'JeÃ»ne de ${_formatSessionDuration(targetDuration)} dÃ©marrÃ© !',
+          'Jeûne de ${_formatSessionDuration(targetDuration)} démarré !',
         ),
         backgroundColor: Colors.green,
       ),
@@ -10009,7 +10721,7 @@ class _FastingTabState extends State<FastingTab> {
         targetDuration: _targetDurationForActiveFast,
         notes:
             wasCancelled
-                ? 'Session annulÃ©e'
+                ? 'Session annulée'
                 : 'Plan: ${_activePlanId ?? "Ad-hoc"}',
       );
       widget.addFastingSession(session);
@@ -10066,7 +10778,7 @@ class _FastingTabState extends State<FastingTab> {
     if (mounted) setState(() {});
   }
 
-  /// Ajoute un jeÃ»ne ad-hoc Ã  la date donnÃ©e dans le programme.
+  /// Ajoute un jeûne ad-hoc à la date donnée dans le programme.
   Future<void> _addFastingToProgram(FastingPlan plan, DateTime date) async {
     if (_currentMonthProgram == null) return;
 
@@ -10096,7 +10808,7 @@ class _FastingTabState extends State<FastingTab> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'JeÃ»ne ${plan.name} ajoutÃ© le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
+            'Jeûne ${plan.name} ajouté le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
           ),
           backgroundColor: Colors.teal,
         ),
@@ -10112,7 +10824,7 @@ class _FastingTabState extends State<FastingTab> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mon Programme de JeÃ»ne'),
+        title: const Text('Mon Programme de Jeûne'),
         automaticallyImplyLeading: false,
         actions: [
           if (_isFastingActive)
@@ -10261,7 +10973,7 @@ class _FastingTabState extends State<FastingTab> {
               ),
               if (plan.isPremium && !widget.isPremiumUser)
                 Chip(
-                  label: const Text('FonctionnalitÃ© Premium'),
+                  label: const Text('Fonctionnalité Premium'),
                   avatar: const Icon(Icons.workspace_premium, size: 18),
                   backgroundColor: Colors.amber.shade100,
                 ),
@@ -10273,23 +10985,23 @@ class _FastingTabState extends State<FastingTab> {
               ),
             ] else
               Text(
-                "Aucun jeÃ»ne n'est prÃ©vu pour ce jour.",
+                "Aucun jeûne n'est prévu pour ce jour.",
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.grey.shade600),
               ),
             const SizedBox(height: 20),
             if (!_isFastingActive && !isPastDay && !isFutureDay)
               ElevatedButton.icon(
-                // ================== DÃ‰BUT DE LA MODIFICATION ==================
+                // ================== DÉBUT DE LA MODIFICATION ==================
                 onPressed: () async {
                   // Rendre la fonction async
-                  // Si un jeÃ»ne est dÃ©jÃ  planifiÃ©, on le dÃ©marre directement.
+                  // Si un jeûne est déjà planifié, on le démarre directement.
                   if (entryForSelectedDay != null && plan != null) {
                     if (plan.isPremium && !widget.isPremiumUser) {
                       if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
-                            "Ce plan de jeÃ»ne est rÃ©servÃ© aux membres Premium.",
+                            "Ce plan de jeûne est réservé aux membres Premium.",
                           ),
                           backgroundColor: Colors.amber,
                         ),
@@ -10301,7 +11013,7 @@ class _FastingTabState extends State<FastingTab> {
                       planId: entryForSelectedDay.planId,
                     );
                   }
-                  // SINON (cas qui nous intÃ©resse), on ouvre l'Ã©cran de sÃ©lection.
+                  // SINON (cas qui nous intéresse), on ouvre l'écran de sélection.
                   else {
                     final selectedPlan = await Navigator.push<FastingPlan>(
                       context,
@@ -10315,7 +11027,7 @@ class _FastingTabState extends State<FastingTab> {
                       ),
                     );
 
-                    // Si l'utilisateur a choisi un plan et est revenu, on dÃ©marre le jeÃ»ne.
+                    // Si l'utilisateur a choisi un plan et est revenu, on démarre le jeûne.
                     if (selectedPlan != null && mounted) {
                       _showStartFastDialog(
                         targetDuration: selectedPlan.fastingDuration,
@@ -10332,13 +11044,13 @@ class _FastingTabState extends State<FastingTab> {
                 ),
                 label: Text(
                   entryForSelectedDay != null
-                      ? 'DÃ©marrer le JeÃ»ne PlanifiÃ©'
-                      : 'DÃ©marrer un JeÃ»ne',
+                      ? 'Démarrer le Jeûne Planifié'
+                      : 'Démarrer un Jeûne',
                 ),
               )
             else if (_isFastingActive)
               const Text(
-                "Un jeÃ»ne est dÃ©jÃ  en cours...",
+                "Un jeûne est déjà en cours...",
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
@@ -10355,7 +11067,7 @@ class _FastingTabState extends State<FastingTab> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "Ce jeÃ»ne est prÃ©vu dans le futur.\nVous pourrez le dÃ©marrer le jour J.",
+                      "Ce jeûne est prévu dans le futur.\nVous pourrez le démarrer le jour J.",
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontStyle: FontStyle.italic,
@@ -10370,7 +11082,7 @@ class _FastingTabState extends State<FastingTab> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      "Aucun jeÃ»ne planifiÃ© pour ce jour.",
+                      "Aucun jeûne planifié pour ce jour.",
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey.shade600),
                     ),
@@ -10381,9 +11093,9 @@ class _FastingTabState extends State<FastingTab> {
                           context: context,
                           builder:
                               (ctx) => AlertDialog(
-                                title: const Text('âš ï¸ Ajouter un jeÃ»ne'),
+                                title: const Text('⚠️ Ajouter un jeûne'),
                                 content: Text(
-                                  'Vous Ãªtes sur le point d\'ajouter un jeÃ»ne Ã  votre programme le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay)}.\n\nAssurez-vous d\'Ãªtre en bonne santÃ© et de vous hydrater suffisamment.',
+                                  'Vous êtes sur le point d\'ajouter un jeûne à votre programme le ${DateFormat('d MMMM yyyy', 'fr_FR').format(_selectedDay)}.\n\nAssurez-vous d\'être en bonne santé et de vous hydrater suffisamment.',
                                 ),
                                 actions: [
                                   TextButton(
@@ -10420,7 +11132,7 @@ class _FastingTabState extends State<FastingTab> {
                         }
                       },
                       icon: const Icon(Icons.add_alarm),
-                      label: const Text('Ajouter un jeÃ»ne Ã  ce jour'),
+                      label: const Text('Ajouter un jeûne à ce jour'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.teal,
                         foregroundColor: Colors.white,
@@ -10431,7 +11143,7 @@ class _FastingTabState extends State<FastingTab> {
               )
             else if (isPastDay)
               const Text(
-                "Cette date est passÃ©e.",
+                "Cette date est passée.",
                 style: TextStyle(
                   fontStyle: FontStyle.italic,
                   color: Colors.grey,
@@ -10481,7 +11193,7 @@ class _FastingTabState extends State<FastingTab> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'Temps Ã©coulÃ©',
+                          'Temps écoulé',
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         const SizedBox(height: 8),
@@ -10558,7 +11270,7 @@ class _FastingTabState extends State<FastingTab> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('DÃ©but: ${DateFormat('HH:mm').format(_fastStartTime!)}'),
+                Text('Début: ${DateFormat('HH:mm').format(_fastStartTime!)}'),
                 Text('Fin: ${DateFormat('HH:mm').format(fastEndTime)}'),
               ],
             ),
@@ -10588,7 +11300,7 @@ class _FastingTabState extends State<FastingTab> {
                     ),
                   ),
                   subtitle: Text(
-                    isActive ? stage.description : 'Ã‰tape Ã  venir...',
+                    isActive ? stage.description : 'Étape à venir...',
                   ),
                 ),
               );
@@ -10608,7 +11320,7 @@ class _FastingTabState extends State<FastingTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Historique des JeÃ»nes',
+          'Historique des Jeûnes',
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: 8),
@@ -10630,10 +11342,10 @@ class _FastingTabState extends State<FastingTab> {
                   color: targetReached ? Colors.green : Colors.orange,
                 ),
                 title: Text(
-                  'JeÃ»ne de ${_formatSessionDuration(session.duration)}',
+                  'Jeûne de ${_formatSessionDuration(session.duration)}',
                 ),
                 subtitle: Text(
-                  'TerminÃ© le ${DateFormat('d MMM yyyy Ã  HH:mm', 'fr_FR').format(session.endTime)}',
+                  'Terminé le ${DateFormat('d MMM yyyy à HH:mm', 'fr_FR').format(session.endTime)}',
                 ),
                 trailing: IconButton(
                   icon: const Icon(
@@ -10667,7 +11379,7 @@ class _FastingTabState extends State<FastingTab> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('Configurer et DÃ©marrer le JeÃ»ne'),
+              title: const Text('Configurer et Démarrer le Jeûne'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -10675,7 +11387,7 @@ class _FastingTabState extends State<FastingTab> {
                   Text("Objectif: ${_formatSessionDuration(targetDuration)}"),
                   const SizedBox(height: 16),
                   ListTile(
-                    title: const Text("Heure de dÃ©but"),
+                    title: const Text("Heure de début"),
                     subtitle: Text(
                       DateFormat('HH:mm').format(selectedStartTime),
                       style: Theme.of(context).textTheme.titleLarge,
@@ -10704,7 +11416,7 @@ class _FastingTabState extends State<FastingTab> {
                     },
                   ),
                   ListTile(
-                    title: const Text("Heure de fin (estimÃ©e)"),
+                    title: const Text("Heure de fin (estimée)"),
                     subtitle: Text(
                       DateFormat('HH:mm').format(calculatedEndTime),
                       style: Theme.of(context).textTheme.titleLarge,
@@ -10726,7 +11438,7 @@ class _FastingTabState extends State<FastingTab> {
                       planId: planId,
                     );
                   },
-                  child: const Text('DÃ©marrer'),
+                  child: const Text('Démarrer'),
                 ),
               ],
             );
@@ -10741,9 +11453,9 @@ class _FastingTabState extends State<FastingTab> {
       context: context,
       builder:
           (ctx) => AlertDialog(
-            title: const Text('Terminer le jeÃ»ne ?'),
+            title: const Text('Terminer le jeûne ?'),
             content: const Text(
-              'Voulez-vous terminer et enregistrer votre session de jeÃ»ne actuelle ?',
+              'Voulez-vous terminer et enregistrer votre session de jeûne actuelle ?',
             ),
             actions: [
               TextButton(
@@ -10775,15 +11487,15 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   Color _getLevelColor(String level) {
-    if (level.contains('DÃ©butant')) return Colors.green.shade600;
-    if (level.contains('IntermÃ©diaire')) return Colors.amber.shade700;
-    if (level.contains('AvancÃ©')) return Colors.red.shade600;
+    if (level.contains('Débutant')) return Colors.green.shade600;
+    if (level.contains('Intermédiaire')) return Colors.amber.shade700;
+    if (level.contains('Avancé')) return Colors.red.shade600;
     if (level.contains('Expert')) return Colors.purple.shade600;
     return Colors.grey;
   }
 }
 
-// NEW: FastingPlanSelectionScreen (pas nÃ©cessaire de l'ajouter si vous ne l'appelez pas, mais c'est une bonne pratique)
+// NEW: FastingPlanSelectionScreen (pas nécessaire de l'ajouter si vous ne l'appelez pas, mais c'est une bonne pratique)
 class FastingPlanSelectionScreen extends StatefulWidget {
   final bool isPremiumUser;
   final String recommendedGoal;
@@ -10804,16 +11516,16 @@ class _FastingPlanSelectionScreenState
   FastingPlan? _selectedPlan;
 
   Color _getLevelColor(String level) {
-    if (level.contains('DÃ©butant')) return Colors.green.shade600;
-    if (level.contains('IntermÃ©diaire')) return Colors.amber.shade700;
-    if (level.contains('AvancÃ©')) return Colors.red.shade600;
+    if (level.contains('Débutant')) return Colors.green.shade600;
+    if (level.contains('Intermédiaire')) return Colors.amber.shade700;
+    if (level.contains('Avancé')) return Colors.red.shade600;
     if (level.contains('Expert')) return Colors.purple.shade600;
     return Colors.grey;
   }
 
   @override
   Widget build(BuildContext context) {
-    // SÃ©pare les plans recommandÃ©s des autres pour une meilleure UX
+    // Sépare les plans recommandés des autres pour une meilleure UX
     final recommendedPlans =
         predefinedFastingPlans
             .where((p) => p.goals.contains(widget.recommendedGoal))
@@ -10824,13 +11536,13 @@ class _FastingPlanSelectionScreenState
             .toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Choisir un Plan de JeÃ»ne')),
+      appBar: AppBar(title: const Text('Choisir un Plan de Jeûne')),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           if (recommendedPlans.isNotEmpty) ...[
             Text(
-              'RecommandÃ© pour vous',
+              'Recommandé pour vous',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 color: Theme.of(context).primaryColor,
               ),
@@ -10852,7 +11564,7 @@ class _FastingPlanSelectionScreenState
           _selectedPlan != null
               ? FloatingActionButton.extended(
                 onPressed: () => Navigator.pop(context, _selectedPlan),
-                label: Text('DÃ©marrer : ${_selectedPlan!.name}'),
+                label: Text('Démarrer : ${_selectedPlan!.name}'),
                 icon: const Icon(Icons.play_arrow),
               )
               : null,
@@ -10929,7 +11641,7 @@ class _FastingPlanSelectionScreenState
                   if (mounted) ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text(
-                        "Ce programme est rÃ©servÃ© aux utilisateurs Premium.",
+                        "Ce programme est réservé aux utilisateurs Premium.",
                       ),
                       backgroundColor: Colors.amber,
                     ),
@@ -10973,7 +11685,7 @@ class _ScanHistoryTabState extends State<ScanHistoryTab> {
                 child: Padding(
                   padding: EdgeInsets.all(20.0),
                   child: Text(
-                    "Aucun produit scannÃ© pour le moment. Scannez un produit pour voir son historique ici !",
+                    "Aucun produit scanné pour le moment. Scannez un produit pour voir son historique ici !",
                     style: TextStyle(fontSize: 18, color: Colors.grey),
                     textAlign: TextAlign.center,
                   ),
@@ -11011,7 +11723,7 @@ class _ScanHistoryTabState extends State<ScanHistoryTab> {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        'ScannÃ© le ${DateFormat('d/M/y HH:mm', 'fr_FR').format(product.scannedDate)}',
+                        'Scanné le ${DateFormat('d/M/y HH:mm', 'fr_FR').format(product.scannedDate)}',
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -11175,7 +11887,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       1,
     );
 
-    // Si l'utilisateur est en sous-poids, on force l'objectif Ã  'maintenir' ou 'prendre du poids' pour Ã©viter les erreurs
+    // Si l'utilisateur est en sous-poids, on force l'objectif à 'maintenir' ou 'prendre du poids' pour éviter les erreurs
     if (_editableProfile.isUnderweight &&
         _editableGoals.weightGoalType == 'lose') {
       _editableGoals.weightGoalType = 'maintain';
@@ -11244,18 +11956,31 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       default:
         activityMultiplier = 1.55;
     }
-    final tdee = bmr * activityMultiplier;
+    double calculatedTdee = bmr * activityMultiplier;
+
+    // 2. AJUSTEMENT DYNAMIQUE DU TDEE (Basé sur les données réelles des 7 derniers jours)
+    if (widget.allWeightEntries.length >= 2) {
+      final recentEntries = widget.allWeightEntries.where(
+        (e) => e.date.isAfter(DateTime.now().subtract(const Duration(days: 7)))
+      ).toList();
+
+      if (recentEntries.isNotEmpty) {
+        // Ajustement léger (+/- 5%) selon la réponse métabolique réelle
+        double adaptiveFactor = SL.mealVision.adjustTDEE(calculatedTdee, 0.5, 0.5, 7) / calculatedTdee;
+        calculatedTdee *= adaptiveFactor;
+      }
+    }
 
     double targetCalories;
     switch (_editableGoals.weightGoalType) {
       case 'gain':
-        targetCalories = tdee + 300;
+        targetCalories = calculatedTdee + 300;
         break;
       case 'lose':
-        targetCalories = tdee - 500;
+        targetCalories = calculatedTdee - 500;
         break;
       default:
-        targetCalories = tdee;
+        targetCalories = calculatedTdee;
     }
 
     final double targetProteins =
@@ -11272,7 +11997,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         targetProteins: targetProteins.clamp(0, double.infinity),
         targetFats: targetFats.clamp(0, double.infinity),
         targetCarbs: targetCarbs.clamp(0, double.infinity),
-        weeklyEnergyExpenditureGoal: tdee,
+        weeklyEnergyExpenditureGoal: calculatedTdee * 7,
       );
 
       _targetCaloriesController.text = _editableGoals.targetCalories.toString();
@@ -11325,7 +12050,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
             endDate: DateTime.now(),
             status:
                 GoalStatus
-                    .failed, // L'ancien objectif est marquÃ© comme Ã©chouÃ© car modifiÃ©
+                    .failed, // L'ancien objectif est marqué comme échoué car modifié
           );
         }
 
@@ -11397,7 +12122,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       title: 'Informations Personnelles',
                       children: [
                         _GoalTextField(
-                          label: 'PrÃ©nom',
+                          label: 'Prénom',
                           controller: _firstNameController,
                           onSaved:
                               (v) =>
@@ -11415,7 +12140,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                   ),
                         ),
                         _GoalTextField(
-                          label: 'Ã‚ge',
+                          label: 'Âge',
                           controller: _ageController,
                           keyboardType: TextInputType.number,
                           onChanged: (_) => _updateGoalsFromProfile(),
@@ -11449,6 +12174,22 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           keyboardType: TextInputType.number,
                           onChanged: (_) => _updateGoalsFromProfile(),
                         ),
+                        const SizedBox(height: 12),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8.0),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.public, color: Colors.grey, size: 20),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Pays : ${Countries.nameOf(_editableProfile.countryCode)} ${_editableProfile.countryCode.flagEmoji} (Défini à l\'inscription)',
+                                  style: const TextStyle(color: Colors.grey, fontSize: 14, fontStyle: FontStyle.italic),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -11457,6 +12198,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       title: 'Habitudes Alimentaires',
                       children: [
                         DropdownButtonFormField<int>(
+                          isExpanded: true,
                           initialValue: _editableProfile.mealsPerDay,
                           decoration: const InputDecoration(
                             labelText: 'Combien de repas par jour ?',
@@ -11481,23 +12223,24 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           },
                         ),
                         DropdownButtonFormField<String>(
+                          isExpanded: true,
                           initialValue: _editableProfile.dietQuality,
                           decoration: const InputDecoration(
-                            labelText: 'QualitÃ© globale de votre alimentation',
+                            labelText: 'Qualité globale de votre alimentation',
                           ),
                           items: const [
                             DropdownMenuItem(
                               value: 'saine',
-                              child: Text('PlutÃ´t saine et Ã©quilibrÃ©e'),
+                              child: Text('Plutôt saine et équilibrée'),
                             ),
                             DropdownMenuItem(
                               value: 'moyenne',
-                              child: Text('Variable, avec des excÃ¨s'),
+                              child: Text('Variable, avec des excès'),
                             ),
                             DropdownMenuItem(
                               value: 'peu_saine',
                               child: Text(
-                                'Souvent peu Ã©quilibrÃ©e (transformÃ©s, etc.)',
+                                'Souvent peu équilibrée (transformés, etc.)',
                               ),
                             ),
                           ],
@@ -11512,7 +12255,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           },
                         ),
                         SwitchListTile(
-                          title: const Text('Je m\'entraÃ®ne en salle de sport'),
+                          title: const Text('Je m\'entraîne en salle de sport'),
                           value: _editableProfile.gymMode,
                           onChanged:
                               (v) => setState(
@@ -11523,10 +12266,10 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ),
                         if (!_editableProfile.gymMode)
                           _buildMultiSelectChip(
-                            label: 'Mon matÃ©riel Ã  la maison',
+                            label: 'Mon matériel à la maison',
                             options: [
-                              'HaltÃ¨res',
-                              'Bande de rÃ©sistance',
+                              'Haltères',
+                              'Bande de résistance',
                               'Barre de traction',
                               'Kettlebell',
                               'Tapis de sol',
@@ -11543,7 +12286,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                 ),
                           ),
                         SwitchListTile(
-                          title: const Text('Tendance Ã  manger trop sucrÃ© ?'),
+                          title: const Text('Tendance à manger trop sucré ?'),
                           value: _editableProfile.tendsToEatSugary,
                           onChanged:
                               (v) => setState(
@@ -11553,7 +12296,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               ),
                         ),
                         SwitchListTile(
-                          title: const Text('Tendance Ã  manger trop salÃ© ?'),
+                          title: const Text('Tendance à manger trop salé ?'),
                           value: _editableProfile.tendsToEatSalty,
                           onChanged:
                               (v) => setState(
@@ -11566,7 +12309,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                     ),
                     const SizedBox(height: 32),
                     Text(
-                      'Vos objectifs de santÃ©',
+                      'Vos objectifs de santé',
                       style: Theme.of(context).textTheme.headlineSmall
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
@@ -11578,6 +12321,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                       content: Column(
                         children: [
                           DropdownButtonFormField<String>(
+                            isExpanded: true,
                             initialValue: _editableGoals.weightGoalType,
                             decoration: InputDecoration(
                               labelText: 'Type d\'objectif',
@@ -11590,7 +12334,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                             // CORRECTION: Utilisation de la liste dynamique
                             items: goalTypeItems,
                             onChanged: (value) {
-                              // Si la valeur est nulle (ce qui peut arriver si l'option est retirÃ©e), on ne fait rien
+                              // Si la valeur est nulle (ce qui peut arriver si l'option est retirée), on ne fait rien
                               if (value == null) return;
                               setState(
                                 () => _editableGoals.weightGoalType = value,
@@ -11616,12 +12360,12 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                               // Suggestion si la cible est trop ambitieuse ou potentiellement dangereuse
                               if (_editableGoals.weightGoalType == 'lose' &&
                                   targetWeight < minNormalWeight) {
-                                return 'Attention, cet objectif vous mettrait en sous-poids. Visez plutÃ´t ${minNormalWeight.toStringAsFixed(1)} kg.';
+                                return 'Attention, cet objectif vous mettrait en sous-poids. Visez plutôt ${minNormalWeight.toStringAsFixed(1)} kg.';
                               }
                               if (_editableGoals.weightGoalType == 'gain' &&
                                   targetWeight > maxNormalWeight * 1.2) {
                                 // 20% au dessus du poids max normal
-                                return 'Cet objectif est trÃ¨s ambitieux. Progressez par paliers.';
+                                return 'Cet objectif est très ambitieux. Progressez par paliers.';
                               }
                               return null;
                             },
@@ -11642,7 +12386,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                         ? const Card(
                           child: ListTile(
                             title: Text(
-                              "Aucun objectif dÃ©fini pour le moment.",
+                              "Aucun objectif défini pour le moment.",
                             ),
                           ),
                         )
@@ -11684,7 +12428,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                                       color: statusColor,
                                     ),
                                     title: Text(
-                                      '${goal.goalType.capitalize()} de ${goal.startWeight}kg Ã  ${goal.targetWeight}kg',
+                                      '${goal.goalType.capitalize()} de ${goal.startWeight}kg à ${goal.targetWeight}kg',
                                     ),
                                     subtitle: Text(
                                       'Du ${DateFormat('dd/MM/yy').format(goal.startDate)} au ${goal.endDate != null ? DateFormat('dd/MM/yy').format(goal.endDate!) : '...'}',
@@ -11714,7 +12458,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     );
   }
 
-  // Fonctions d'aide Ã  la construction de l'UI (pas de changement ici)
+  // Fonctions d'aide à la construction de l'UI (pas de changement ici)
   Widget _buildProfileInputCard({
     required String title,
     required List<Widget> children,
@@ -11871,12 +12615,12 @@ class _GoalsTabState extends State<GoalsTab> {
   Future<void> _deduceWeightGoalWithIA() async {
     if (!widget.isPremiumUser) {
       final dailyCalls =
-          await widget.usageTrackerService.getDeepSeekApiCallCount();
-      if (dailyCalls >= widget.usageTrackerService.deepSeekLimit) {
+          await widget.usageTrackerService.getAiApiCallCount();
+      if (dailyCalls >= widget.usageTrackerService.aiLimit) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Vous avez atteint la limite de 5 appels DeepSeek par jour (version Free). Passez au Premium pour un usage illimitÃ© !",
+              "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
             ),
             backgroundColor: Colors.red,
           ),
@@ -11897,7 +12641,7 @@ class _GoalsTabState extends State<GoalsTab> {
                 SizedBox(width: 20),
                 Expanded(
                   child: Text(
-                    "L'IA analyse vos donnÃ©es pour dÃ©duire le meilleur objectif.",
+                    "L'IA analyse vos données pour déduire le meilleur objectif.",
                   ),
                 ),
               ],
@@ -11907,16 +12651,16 @@ class _GoalsTabState extends State<GoalsTab> {
 
     final String prompt = '''
     Tu es un expert en nutrition et sport. Un utilisateur veut fixer un objectif.
-    Voici ses donnÃ©es :
+    Voici ses données :
     - Poids actuel : $_currentWeight kg
-    - IMC (estimÃ©, selon le poids et taille standard moyenne) ou informations fournies: veut une recommandation d'objectif.
+    - IMC (estimé, selon le poids et taille standard moyenne) ou informations fournies: veut une recommandation d'objectif.
     
-    DÃ©termine le meilleur objectif nutritionnel.
-    Aussi, calcule des macros cibles (protÃ©ines, glucides, lipides) adaptÃ©es.
+    Détermine le meilleur objectif nutritionnel.
+    Aussi, calcule des macros cibles (protéines, glucides, lipides) adaptées.
     
-    Renvoie le rÃ©sultat en JSON STRICT avec:
+    Renvoie le résultat en JSON STRICT avec:
     - "goal": "lose", "gain" ou "maintain"
-    - "target_weight": (double) un poids cible rÃ©aliste et sain
+    - "target_weight": (double) un poids cible réaliste et sain
     - "target_calories": (int)
     - "target_proteins": (double)
     - "target_carbs": (double)
@@ -11933,8 +12677,6 @@ class _GoalsTabState extends State<GoalsTab> {
       if (mounted) Navigator.pop(context);
 
       if (result != null) {
-        await widget.usageTrackerService.incrementDeepSeekApiCall();
-
         setState(() {
           _editableGoals.weightGoalType = result['goal'] ?? 'maintain';
           _editableGoals.targetWeight =
@@ -11986,7 +12728,7 @@ class _GoalsTabState extends State<GoalsTab> {
           padding: const EdgeInsets.all(16.0),
           children: [
             Text(
-              'DÃ©finissez vos objectifs',
+              'Définissez vos objectifs',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
@@ -12053,8 +12795,8 @@ class _GoalsTabState extends State<GoalsTab> {
                     icon: const Icon(Icons.lightbulb_outline),
                     label: Text(
                       widget.isPremiumUser
-                          ? 'DÃ©duire l\'objectif avec l\'IA'
-                          : 'DÃ©duire l\'objectif avec l\'IA (5/jour)',
+                          ? 'Déduire l\'objectif avec l\'IA'
+                          : 'Déduire l\'objectif avec l\'IA (5/jour)',
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.amber.shade700,
@@ -12082,7 +12824,7 @@ class _GoalsTabState extends State<GoalsTab> {
                   ),
                   const SizedBox(height: 12),
                   _GoalTextField(
-                    label: 'ProtÃ©ines (g)',
+                    label: 'Protéines (g)',
                     initialValue: _editableGoals.targetProteins.toStringAsFixed(
                       0,
                     ),
@@ -12208,7 +12950,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
   }
 
   Future<void> _loadUsages() async {
-    final api = await widget.usageTrackerService.getDeepSeekApiCallCount();
+    final api = await widget.usageTrackerService.getAiApiCallCount();
     final photo = await widget.usageTrackerService.getPhotoAnalysisCount();
     final scan = await widget.usageTrackerService.getScanAnalysisCount();
     if (mounted) {
@@ -12222,7 +12964,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
 
   @override
   Widget build(BuildContext context) {
-    final limitIA = widget.usageTrackerService.deepSeekLimit;
+    final limitIA = widget.usageTrackerService.aiLimit;
     final streak = widget.usageTrackerService.currentStreak;
 
     return Scaffold(
@@ -12278,8 +13020,8 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
                     const Divider(height: 24),
                     Text(
                       widget.isPremiumUser
-                          ? 'FÃ©licitations ! Vous bÃ©nÃ©ficiez de toutes les fonctionnalitÃ©s illimitÃ©es.'
-                          : 'Vous utilisez la version gratuite.\nBonus de sÃ©rie en cours : $streak jours (+${limitIA - 5} appels IA) !',
+                          ? 'Félicitations ! Vous bénéficiez de toutes les fonctionnalités illimitées.'
+                          : 'Vous utilisez la version gratuite.\nBonus de série en cours : $streak jours (+${limitIA - 5} appels IA) !',
                       style: TextStyle(
                         fontSize: 16,
                         color:
@@ -12322,7 +13064,7 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             ),
             const SizedBox(height: 32),
             Text(
-              'Vos CrÃ©dits & Limites (Aujourd\'hui)',
+              'Vos Crédits & Limites (Aujourd\'hui)',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
@@ -12332,29 +13074,29 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
               context,
               'Appels IA (Recettes, Bilan, Menus)',
               widget.isPremiumUser
-                  ? 'IllimitÃ©'
-                  : 'UtilisÃ©s : $_apiCallsUsed / $limitIA',
+                  ? 'Illimité'
+                  : 'Utilisés : $_apiCallsUsed / $limitIA',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
               'Analyse IA Photo',
               widget.isPremiumUser
-                  ? 'IllimitÃ©'
-                  : 'UtilisÃ©s : $_photoCallsUsed / ${UserLimits.freePhotoAnalysisPerDay}',
+                  ? 'Illimité'
+                  : 'Utilisés : $_photoCallsUsed / ${UserLimits.freePhotoAnalysisPerDay}',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
               'Scan IA des produits',
               widget.isPremiumUser
-                  ? 'IllimitÃ©'
-                  : 'UtilisÃ©s : $_scanCallsUsed / ${UserLimits.freeScanAnalysisPerDay}',
+                  ? 'Illimité'
+                  : 'Utilisés : $_scanCallsUsed / ${UserLimits.freeScanAnalysisPerDay}',
               widget.isPremiumUser,
             ),
             const SizedBox(height: 32),
             Text(
-              'FonctionnalitÃ©s de l\'abonnement',
+              'Fonctionnalités de l\'abonnement',
               style: Theme.of(
                 context,
               ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
@@ -12362,44 +13104,44 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
             const SizedBox(height: 16),
             _buildFeatureCard(
               context,
-              'Analyses photo IA illimitÃ©es',
-              'Free: 1 analyse / jour\nPremium: IllimitÃ©',
+              'Analyses photo IA illimitées',
+              'Free: 1 analyse / jour\nPremium: Illimité',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Scans IA de produits illimitÃ©s et plus rapides',
-              'Free: 5 scans IA / jour\nPremium: IllimitÃ© & ParallÃ¨le',
+              'Scans IA de produits illimités et plus rapides',
+              'Free: 5 scans IA / jour\nPremium: Illimité & Parallèle',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Appels API ModÃ¨le IA illimitÃ©s',
-              'Free: 5 appels / jour + bonus sÃ©rie\nPremium: IllimitÃ©',
+              'Appels API Modèle IA illimités',
+              'Free: 5 appels / jour + bonus série\nPremium: Illimité',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Historique Ã©tendu des donnÃ©es',
-              'Free: DonnÃ©es des 30 derniers jours\nPremium: Historique complet',
+              'Historique étendu des données',
+              'Free: Données des 30 derniers jours\nPremium: Historique complet',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Conseils IA personnalisÃ©s et proactifs',
+              'Conseils IA personnalisés et proactifs',
               'Free: Suggestions basiques\nPremium: Conseils approfondis (recettes, ajustements de plan)',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Planification de repas avancÃ©e et gÃ©nÃ©ration de menus hebdomadaires',
-              'Free: Menus du jour basiques\nPremium: Menus rÃ©currents, listes de courses gÃ©nÃ©rÃ©es par l\'IA',
+              'Planification de repas avancée et génération de menus hebdomadaires',
+              'Free: Menus du jour basiques\nPremium: Menus récurrents, listes de courses générées par l\'IA',
               widget.isPremiumUser,
             ),
             _buildFeatureCard(
               context,
-              'Programmes d\'entrainements et jeÃ»ne avancÃ©s',
-              'Free: Outils manuels simples\nPremium: Programmes IA (expert), jeÃ»nes longs (>20h)',
+              'Programmes d\'entrainements et jeûne avancés',
+              'Free: Outils manuels simples\nPremium: Programmes IA (expert), jeûnes longs (>20h)',
               widget.isPremiumUser,
             ),
           ],
@@ -12616,7 +13358,7 @@ class _GoalTextField extends StatelessWidget {
           labelText: label,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           filled: true,
-          // Correction Mode Sombre : gris foncÃ© en dark mode, gris trÃ¨s clair en light mode
+          // Correction Mode Sombre : gris foncé en dark mode, gris très clair en light mode
           fillColor: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
         ),
         keyboardType: keyboardType,
@@ -12628,7 +13370,7 @@ class _GoalTextField extends StatelessWidget {
             validator ??
             (value) {
               if (!readOnly && (value == null || value.isEmpty)) {
-                return 'Ce champ ne peut pas Ãªtre vide.';
+                return 'Ce champ ne peut pas être vide.';
               }
               if (keyboardType == TextInputType.number &&
                   (value != null && value.isNotEmpty) &&
@@ -12668,7 +13410,7 @@ class GlobalImpactCard extends StatelessWidget {
             ),
             Tooltip(
               message:
-                  "Cette note Ã©value l'impact global du produit par rapport Ã  une alimentation durable.",
+                  "Cette note évalue l'impact global du produit par rapport à une alimentation durable.",
               child: Icon(
                 Icons.info_outline,
                 size: 20,
@@ -12719,7 +13461,7 @@ class GlobalImpactCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Comment ce score est-il calculÃ© ?",
+                  "Comment ce score est-il calculé ?",
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -12762,14 +13504,14 @@ class LifecycleBreakdownCard extends StatelessWidget {
             ),
             const Tooltip(
               message:
-                  "RÃ©partition de l'impact environnemental selon les donnÃ©es Agribalyse.",
+                  "Répartition de l'impact environnemental selon les données Agribalyse.",
               child: Icon(Icons.info_outline, size: 20, color: Colors.blue),
             ),
           ],
         ),
         subtitle: const Padding(
           padding: EdgeInsets.only(top: 4.0),
-          child: Text("Cliquez pour voir le dÃ©tail de l'impact"),
+          child: Text("Cliquez pour voir le détail de l'impact"),
         ),
         children: [
           Padding(
@@ -12834,12 +13576,12 @@ class ProductStatusCard extends StatelessWidget {
       case 'vegan':
         icon = Icons.eco;
         color = Colors.green.shade700;
-        text = "Produit VÃ©gÃ©talien (Vegan)";
+        text = "Produit Végétalien (Vegan)";
         break;
       case 'vegetarian':
         icon = Icons.grass;
         color = Colors.lightGreen.shade800;
-        text = "Produit VÃ©gÃ©tarien";
+        text = "Produit Végétarien";
         break;
       case 'non-vegetarian':
         icon = Icons.kebab_dining;
@@ -12849,7 +13591,7 @@ class ProductStatusCard extends StatelessWidget {
       default:
         icon = Icons.help_outline;
         color = Colors.grey.shade700;
-        text = "Statut vÃ©gÃ©tarien inconnu";
+        text = "Statut végétarien inconnu";
     }
 
     return Card(
@@ -12896,8 +13638,8 @@ class AnalysisCard extends StatelessWidget {
         return Colors.green.shade700;
       case 'moyen':
         return Colors.orange.shade700;
-      case 'mÃ©diocre':
-      case 'Ã  Ã©viter':
+      case 'médiocre':
+      case 'à éviter':
         return Colors.red.shade700;
       default:
         return Theme.of(context).colorScheme.onSurface;
@@ -12983,7 +13725,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     isEstimated
-                        ? "Eco-score Produit (EstimÃ© par IA)"
+                        ? "Eco-score Produit (Estimé par IA)"
                         : "Eco-score Produit (Officiel)",
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -12991,7 +13733,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 if (isEstimated)
                   const Tooltip(
                     message:
-                        "Cette analyse est une estimation par IA car les donnÃ©es officielles ne sont pas disponibles.",
+                        "Cette analyse est une estimation par IA car les données officielles ne sont pas disponibles.",
                     child: Icon(
                       Icons.info_outline,
                       size: 20,
@@ -13020,7 +13762,7 @@ class EnvironmentalImpactCard extends StatelessWidget {
                 subtitle: Text(
                   isEstimated
                       ? "Estimation par l'IA"
-                      : "DonnÃ©e officielle (Agribalyse)",
+                      : "Donnée officielle (Agribalyse)",
                 ),
               ),
               const SizedBox(height: 16),
@@ -13145,10 +13887,10 @@ class NutrimentDetailsCard extends StatelessWidget {
       text = 'Faible';
       color = Colors.green;
     } else if (value <= thresholds[key]![1]) {
-      text = 'ModÃ©rÃ©';
+      text = 'Modéré';
       color = Colors.orange;
     } else {
-      text = 'Ã‰levÃ©';
+      text = 'Élevé';
       color = Colors.red;
     }
 
@@ -13195,7 +13937,7 @@ class NutrimentDetailsCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "RepÃ¨res Nutritionnels (pour 100g)",
+              "Repères Nutritionnels (pour 100g)",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 8),
@@ -13281,7 +14023,7 @@ class AdditivesCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    "Additifs (DonnÃ©es Officielles)",
+                    "Additifs (Données Officielles)",
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -13334,7 +14076,7 @@ class IngredientAnalysisCard extends StatelessWidget {
       text = 'Bon';
     } else if (healthScore >= 3) {
       color = Colors.orange;
-      text = 'ModÃ©rÃ©';
+      text = 'Modéré';
     } else {
       color = Colors.red;
       text = 'Mauvais';
@@ -13372,7 +14114,7 @@ class IngredientAnalysisCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "DÃ©tail des Autres IngrÃ©dients (par l'IA)",
+              "Détail des Autres Ingrédients (par l'IA)",
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const Divider(height: 24),
@@ -13387,7 +14129,7 @@ class IngredientAnalysisCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            ing['name'] as String? ?? 'IngrÃ©dient',
+                            ing['name'] as String? ?? 'Ingrédient',
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
@@ -13401,7 +14143,7 @@ class IngredientAnalysisCard extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 4.0),
                         child: Text(
-                          "CatÃ©gorie: ${ing['category']}",
+                          "Catégorie: ${ing['category']}",
                           style: TextStyle(
                             fontStyle: FontStyle.italic,
                             color: Colors.grey.shade600,
@@ -13456,7 +14198,7 @@ class ComparisonProductCard extends StatelessWidget {
                 : const Icon(Icons.fastfood, size: 50, color: Colors.grey),
         title: Text(alternative['product_name'] ?? 'Nom inconnu'),
         subtitle: Text(
-          'Note CatÃ©gorie: ${alternative['category_score'].toStringAsFixed(1)}/10',
+          'Note Catégorie: ${alternative['category_score'].toStringAsFixed(1)}/10',
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
         trailing:
@@ -13538,7 +14280,7 @@ class _ScannerPageState extends State<ScannerPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Codes scannÃ©s',
+                    'Codes scannés',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
@@ -13567,7 +14309,7 @@ class _ScannerPageState extends State<ScannerPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${_scannedCodes.length} article(s) scannÃ©(s). Appuyez sur Terminer lorsque vous avez terminÃ©.',
+                    '${_scannedCodes.length} article(s) scanné(s). Appuyez sur Terminer lorsque vous avez terminé.',
                     style: const TextStyle(color: Colors.grey),
                   ),
                 ],
@@ -13603,7 +14345,7 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
     if (_recipeNameController.text.isEmpty || _ingredients.isEmpty) return;
 
     final recipePerPortion = FoodEntry(
-      name: 'ðŸ½ï¸ ${_recipeNameController.text} (1 portion)',
+      name: '🍽️ ${_recipeNameController.text} (1 portion)',
       calories: (totalKcal / _portions).round(),
       proteins: totalPro / _portions,
       carbs: totalCarbs / _portions,
@@ -13619,7 +14361,7 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('CrÃ©er une Recette'),
+        title: const Text('Créer une Recette'),
         actions: [
           IconButton(icon: const Icon(Icons.save), onPressed: _saveRecipe),
         ],
@@ -13712,14 +14454,14 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
             padding: const EdgeInsets.all(16.0),
             child: ElevatedButton.icon(
               onPressed: () async {
-                // On simule une boÃ®te de dialogue rapide pour ajouter un ingrÃ©dient
+                // On simule une boîte de dialogue rapide pour ajouter un ingrédient
                 String nom = '';
                 int cal = 0;
                 await showDialog(
                   context: context,
                   builder:
                       (ctx) => AlertDialog(
-                        title: const Text("Ajouter un ingrÃ©dient"),
+                        title: const Text("Ajouter un ingrédient"),
                         content: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -13768,7 +14510,7 @@ class _RecipeBuilderScreenState extends State<RecipeBuilderScreen> {
                 );
               },
               icon: const Icon(Icons.add),
-              label: const Text('Ajouter un ingrÃ©dient'),
+              label: const Text('Ajouter un ingrédient'),
             ),
           ),
         ],

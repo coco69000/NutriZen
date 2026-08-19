@@ -1,4 +1,6 @@
 import 'package:uuid/uuid.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 // onboarding_flow_screen.dart
 
 import 'dart:math' as math;
@@ -57,6 +59,20 @@ class _ProfileCreationLoadingScreenState extends State<ProfileCreationLoadingScr
 }
 
 
+Future<String> getCountryCodeFromIP() async {
+  try {
+    // Utilisation de ipapi.co (gratuit, 1000 requêtes/jour)
+    final response = await http.get(Uri.parse('https://ipapi.co/json/')).timeout(const Duration(seconds: 5));
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return (data['country_code'] as String?)?.toUpperCase() ?? 'FR';
+    }
+  } catch (e) {
+    debugPrint('Erreur récupération pays par IP: $e');
+  }
+  return 'FR'; // Fallback sécurisé
+}
+
 class OnboardingFlowScreen extends StatefulWidget {
   const OnboardingFlowScreen({super.key});
 
@@ -100,7 +116,25 @@ class _OnboardingFlowScreenState extends State<OnboardingFlowScreen> {
     'likedSports': '',
     'dislikedSports': '',
     'bodyFatPercentage': null,
+    'countryCode': 'FR',
   };
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeCountryCode();
+  }
+
+  Future<void> _initializeCountryCode() async {
+    final countryCode = await getCountryCodeFromIP();
+    if (mounted) {
+      setState(() {
+        _onboardingData['countryCode'] = countryCode;
+      });
+    } else {
+      _onboardingData['countryCode'] = countryCode;
+    }
+  }
 
   double? _calculateBmi() {
     final height = _onboardingData['height'];
@@ -285,11 +319,6 @@ class _OnboardingFlowScreenState extends State<OnboardingFlowScreen> {
         );
       },
     );
-  }
-
-  @override
-  void initState() {
-    super.initState();
   }
 
   List<Widget> _buildPages(BuildContext context) {
@@ -861,6 +890,7 @@ class _OnboardingAuthScreenState extends State<OnboardingAuthScreen> {
           likedSports: widget.onboardingData['likedSports'] ?? '',
           dislikedSports: widget.onboardingData['dislikedSports'] ?? '',
           bodyFatPercentage: widget.onboardingData['bodyFatPercentage'],
+          countryCode: widget.onboardingData['countryCode'] ?? 'FR',
           goalHistory: [initialGoalEntry],
         );
 

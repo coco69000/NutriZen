@@ -45,7 +45,7 @@ class FoodEntry {
 
   factory FoodEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       FoodEntry(
-        id: json['id'] ?? docId,
+        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
         name: json['name'],
         calories: json['calories'],
         proteins: (json['proteins'] as num).toDouble(),

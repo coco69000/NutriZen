@@ -85,4 +85,61 @@ class ExpertSystemService {
       }
     }
   }
+
+  /// 5. Détection de plateau métabolique (Famine Métabolique)
+  Future<String?> evaluateMetabolicAdaptationDetailed({
+    required List<double> recentWeights, // Poids des 3 dernières semaines
+    required double averageCaloricDeficit, // ex: -500 kcal
+  }) async {
+    if (recentWeights.length < 3) return null;
+
+    // Calcul de la variation de poids sur 3 semaines
+    double totalWeightLoss = recentWeights.first - recentWeights.last;
+
+    // Si l'utilisateur est en déficit marqué (< -350 kcal) mais perd moins de 100g sur 3 semaines
+    if (averageCaloricDeficit < -350 && totalWeightLoss < 0.1) {
+      bool alreadyAdvised = await _memoryService.hasReceivedAdviceRecently('diet_break_advice', thresholdHours: 72);
+      if (!alreadyAdvised) {
+        await _notificationService.showInstantNotification(
+          id: 10,
+          title: "Plateau Métabolique Détecté 🛑",
+          body: "Votre poids stagne malgré votre rigueur. L'IA vous conseille 1 semaine au maintien calorique (Diet Break) pour relancer votre leptine.",
+        );
+        await _memoryService.recordAdvice('diet_break_advice');
+      }
+      return "Plateau métabolique détecté : votre organisme s'est adapté à la baisse. Prévoyez 5 à 7 jours au maintien calorique pour relancer la perte.";
+    }
+    return null;
+  }
+
+  /// 6. Intelligence Comportementale : Prédiction des craquages croisant sommeil & vendredi soir
+  Future<void> evaluateBehavioralRisk({required int sleepHours}) async {
+    final now = DateTime.now();
+
+    // 1. Risque lié au manque de sommeil (< 6h)
+    if (sleepHours < 6) {
+      bool notified = await _memoryService.hasReceivedAdviceRecently('sleep_craving_alert', thresholdHours: 12);
+      if (!notified) {
+        await _notificationService.showInstantNotification(
+          id: 21,
+          title: "Fatigue & Appétit ⚡",
+          body: "Avec moins de 6h de sommeil, la ghréline (hormone de la faim) augmente de 20%. Privilégiez les protéines et fibres pour éviter les fringales aujourd'hui !",
+        );
+        await _memoryService.recordAdvice('sleep_craving_alert');
+      }
+    }
+
+    // 2. Prévention du vendredi soir (17h00-19h00)
+    if (now.weekday == DateTime.friday && now.hour >= 17 && now.hour <= 19) {
+      bool alreadySent = await _memoryService.hasReceivedAdviceRecently('friday_craving_alert', thresholdHours: 24);
+      if (!alreadySent) {
+        await _notificationService.showInstantNotification(
+          id: 22,
+          title: "Anticipez votre soirée ! 🍕",
+          body: "Le vendredi soir est propice aux excès. Découvrez nos recettes réconfortantes et saines dans l'onglet Menus & IA !",
+        );
+        await _memoryService.recordAdvice('friday_craving_alert');
+      }
+    }
+  }
 }

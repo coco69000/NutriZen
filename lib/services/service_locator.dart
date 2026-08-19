@@ -1,11 +1,11 @@
-﻿import 'notification_service.dart';
+import 'notification_service.dart';
 import 'long_term_memory_service.dart';
 import 'expert_system_service.dart';
 import 'hybrid_food_database_service.dart';
 import 'activity_service.dart';
 import 'habit_service.dart';
 import 'exercise_library_service.dart';
-import 'deepseek_service.dart';
+import 'ai_service.dart'; // NOUVEAU : Remplace deepseek_service et meal_vision_service
 import 'usda_nlp_service.dart';
 
 class SL {
@@ -16,8 +16,16 @@ class SL {
   static final ActivityService activityService = ActivityService();
   static final HabitService habitService = HabitService();
   static final ExerciseLibraryService exerciseLibrary = ExerciseLibraryService();
-  static final DeepSeekService aiService = DeepSeekService(apiKey: 'HA2RvSG1u7aE7u78yXd1UqnBuMY6VV70');
-  static final UsdaNlpService usdaNlp = UsdaNlpService();
+  
+  // 🧠 NOUVEAU SERVICE UNIFIÉ (Texte + Image via Qwen)
+  static final AIService aiService = AIService();
+  
+  // 🔄 ALIAS pour ne pas casser le code existant de main.dart qui appelle SL.mealVision
+  static AIService get mealVision => aiService; 
+
+  static final UsdaNlpService usdaNlp = UsdaNlpService(
+    apiKey: const String.fromEnvironment('USDA_API_KEY'),
+  );
 
   static Future<void> initAll() async {
     await notificationService.init();
