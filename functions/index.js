@@ -40,7 +40,7 @@ exports.callAI = functions.https.onCall(async (data, context) => {
 
   // --- QUOTA & TRACKING (Correction Quotas Dynamiques & Firestore Premium Status) ---
   const db = getDb();
-  const today = new Date().toISOString().split('T')[0];
+  const today = data.clientDate || new Date().toISOString().split('T')[0];
   const usageRef = db.collection('users').doc(uid).collection('usageTracking').doc(today);
   const subscriptionRef = db.collection('users').doc(uid).collection('subscription').doc('status');
 
@@ -82,26 +82,34 @@ exports.callAI = functions.https.onCall(async (data, context) => {
   const rawKey = process.env.SILICONFLOW_API_KEY || (functions.config().siliconflow && functions.config().siliconflow.api_key);
   const apiKey = rawKey ? rawKey.trim() : null;
 
-  if (!apiKey || apiKey === 'sk-okxcdcchrijefvzyqutnczztxywhdcdyvbtjuxazbmaxxuze') {
+  if (!apiKey) {
     throw new functions.https.HttpsError(
       'internal',
-      'Clé API SiliconFlow non configurée ou invalide. Veuillez configurer SILICONFLOW_API_KEY avec une clé valide.'
+      'Clé API SiliconFlow non configurée. Veuillez configurer SILICONFLOW_API_KEY dans functions/.env ou firebase config.'
     );
   }
 
-  let userContent = [];
+  let userContent;
   if (imageBase64) {
-    // ✅ FIX #5 : Détection dynamique du type MIME
+    // ✅ Format VLM (Vision) : tableau d'objets avec image_url et text
     const mimeType = getMimeTypeFromBase64(imageBase64);
-    userContent.push({
-      type: "image_url",
-      image_url: { url: `data:${mimeType};base64,${imageBase64}` }
-    });
+    userContent = [
+      {
+        type: "image_url",
+        image_url: {
+          url: `data:${mimeType};base64,${imageBase64}`,
+          detail: "low"
+        }
+      },
+      { type: "text", text: prompt }
+    ];
+  } else {
+    // ✅ Format LLM (Texte pur) : chaîne de caractères simple selon la doc SiliconFlow
+    userContent = prompt;
   }
-  userContent.push({ type: "text", text: prompt });
 
-  // ✅ FIX #4 : System prompt strict sans `response_format`
-  const systemPrompt = "Tu es un assistant IA expert. Tu dois impérativement répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans balises markdown comme ```json.";
+  // ✅ SYSTEM PROMPT RENFORCÉ CONTRE LES BÉGAIEMENTS ET HALLUCINATIONS
+  const systemPrompt = "Tu es un assistant IA expert en santé et nutrition. Tu t'exprimes en français parfait, clair, naturel et sans aucune faute d'orthographe ni bégaiement ou répétition. Tu dois impérativement répondre UNIQUEMENT avec un objet JSON valide, sans aucun texte avant ou après, sans balises markdown ```json.";
 
   const messages = [
     { role: "system", content: systemPrompt },
@@ -109,19 +117,39 @@ exports.callAI = functions.https.onCall(async (data, context) => {
   ];
 
   try {
-    const response = await fetch('https://api.siliconflow.cn/v1/chat/completions', {
+    // ✅ PARAMÈTRES ANTI-DÉGÉNÉRATION :
+    // - Température plafonnée à 0.4 max (évite les délires créatifs néfastes)
+    // - top_p à 0.85 (élimine les tokens aberrants)
+    // - frequency_penalty à 0.3 (interdit les répétitions de mots / boucles infinies)
+    const safeTemp = Math.min(Math.max(data.temperature !== undefined ? data.temperature : 0.4, 0.1), 0.5);
+
+    const requestBody = {
+      model: requestedModel,
+      messages: messages,
+      temperature: safeTemp,
+      top_p: 0.85,
+      frequency_penalty: 0.3,
+      presence_penalty: 0.1,
+      max_tokens: 3000
+    };
+
+    // ✅ Désactiver le mode "thinking" pour les modèles Qwen3 sur les réponses JSON structurées
+    if (requestedModel.includes('Qwen3')) {
+      requestBody.enable_thinking = false;
+    }
+
+    // ✅ JSON mode pour les modèles texte uniquement (exclut VL et DeepSeek-V3)
+    if (!imageBase64 && !requestedModel.includes('VL') && !requestedModel.includes('DeepSeek-V3')) {
+      requestBody.response_format = { type: "json_object" };
+    }
+
+    const response = await fetch('https://api.siliconflow.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model: requestedModel,
-        messages: messages,
-        temperature: data.temperature || 0.5,
-        max_tokens: 4000
-        // ❌ FIX #4 : response_format retiré pour éviter l'erreur 400 sur Qwen-VL
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -319,42 +347,41 @@ exports.evaluateAndAwardBadges = functions.https.onCall(async (data, context) =>
   const db = getDb();
   const uid = context.auth.uid;
 
-  // Récupération des données en parallèle pour la performance
-  const [userDoc, foodsSnap, fastsSnap, activitiesSnap, scansSnap] = await Promise.all([
+  // Récupération OPTIMISÉE (Coût quasi nul en lectures Firestore via count et limit)
+  const [userDoc, foodsCount, fastsSnap, activitiesCount, burn500Snap, scansCount, ecoScansSnap] = await Promise.all([
     db.collection('users').doc(uid).get(),
-    db.collection('users').doc(uid).collection('foodEntries').get(),
-    db.collection('users').doc(uid).collection('fastingSessions').get(),
-    db.collection('users').doc(uid).collection('activities').get(),
-    db.collection('users').doc(uid).collection('scannedProducts').get()
+    db.collection('users').doc(uid).collection('foodEntries').count().get(),
+    db.collection('users').doc(uid).collection('fastingSessions').get(), // volume faible
+    db.collection('users').doc(uid).collection('activities').count().get(),
+    db.collection('users').doc(uid).collection('activities').where('caloriesBurned', '>=', 500).limit(1).get(),
+    db.collection('users').doc(uid).collection('scannedProducts').count().get(),
+    db.collection('users').doc(uid).collection('scannedProducts').where('nutriScore', 'in', ['A', 'B']).limit(5).get()
   ]);
 
   if (!userDoc.exists) throw new functions.https.HttpsError('not-found', 'Utilisateur non trouvé.');
   const userData = userDoc.data();
   const streak = userData.loginStreak || 0;
 
-  const foods = foodsSnap.docs.map(d => d.data());
+  const hasFoods = foodsCount.data().count > 0;
+  const hasScans = scansCount.data().count > 0;
+  const ecoScansCount = ecoScansSnap.size;
+  const hasBurned500 = burn500Snap.size > 0;
   const fasts = fastsSnap.docs.map(d => d.data());
-  const activities = activitiesSnap.docs.map(d => d.data());
-  const scans = scansSnap.docs.map(d => d.data());
 
   const badgesToAward = [];
   const batch = db.batch();
 
   // --- LOGIQUE D'ÉVALUATION SÉCURISÉE ---
-  if (foods.length > 0) badgesToAward.push({ id: 'first_meal', currentProgress: 1, isUnlocked: true });
+  if (hasFoods) badgesToAward.push({ id: 'first_meal', currentProgress: 1, isUnlocked: true });
   if (streak >= 3) badgesToAward.push({ id: 'streak_3', currentProgress: streak, isUnlocked: true });
   if (streak >= 7) badgesToAward.push({ id: 'streak_7', currentProgress: streak, isUnlocked: true });
   if (streak >= 30) badgesToAward.push({ id: 'streak_30', currentProgress: streak, isUnlocked: true });
 
-  if (scans.length > 0) badgesToAward.push({ id: 'first_scan', currentProgress: 1, isUnlocked: true });
-
-  const ecoScans = scans.filter(s => s.nutriScore === 'A' || s.nutriScore === 'B').length;
-  if (ecoScans >= 5) badgesToAward.push({ id: 'eco_hero_5', currentProgress: 5, isUnlocked: true });
-
-  const hasBurned500 = activities.some(a => (a.caloriesBurned || 0) >= 500);
+  if (hasScans) badgesToAward.push({ id: 'first_scan', currentProgress: 1, isUnlocked: true });
+  if (ecoScansCount >= 5) badgesToAward.push({ id: 'eco_hero_5', currentProgress: 5, isUnlocked: true });
   if (hasBurned500) badgesToAward.push({ id: 'calorie_burner_500', currentProgress: 1, isUnlocked: true });
 
-  const hasFast12h = fasts.some(f => (f.durationSeconds || 0) >= 43200);
+  const hasFast12h = fasts.some(f => (f.durationSeconds || 0) >= 43200 || f.isTargetReached === true);
   if (hasFast12h) badgesToAward.push({ id: 'first_fast', currentProgress: 1, isUnlocked: true });
 
   // Appliquer les mises à jour uniquement si le badge n'est pas déjà débloqué

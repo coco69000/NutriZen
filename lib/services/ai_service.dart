@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
+import 'package:intl/intl.dart';
 
 class AIService {
   final FirebaseFunctions _functions;
@@ -43,6 +44,8 @@ class AIService {
         apiType: apiType,
       );
       return result != null ? jsonEncode(result) : null;
+    } on FirebaseFunctionsException {
+      rethrow;
     } catch (e) {
       debugPrint('AIService Image Exception: $e');
       return null;
@@ -63,6 +66,7 @@ class AIService {
         'model': model,
         'temperature': temperature,
         'apiType': apiType,
+        'clientDate': DateFormat('yyyy-MM-dd').format(DateTime.now()),
         if (imageBase64 != null) 'imageBase64': imageBase64,
       });
       
@@ -93,6 +97,9 @@ class AIService {
       return null;
     } on FirebaseFunctionsException catch (e) {
       debugPrint('Cloud Function Error [${e.code}]: ${e.message}');
+      if (e.code == 'resource-exhausted' || e.code == 'permission-denied') {
+        rethrow;
+      }
       return null;
     } catch (e) {
       debugPrint('AIService Exception: $e');

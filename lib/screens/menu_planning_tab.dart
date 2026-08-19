@@ -942,10 +942,6 @@ Future<void> _fetchDailySuggestions() async {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Menus & Recettes'),
-        automaticallyImplyLeading: false,
-      ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [

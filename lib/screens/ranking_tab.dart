@@ -106,9 +106,8 @@ class _RankingTabState extends State<RankingTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _buildPrivacyCard(),
-        _buildScopeSelector(),
-        const SizedBox(height: 8),
+        _buildMinimalistBar(),
+        const SizedBox(height: 6),
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -120,37 +119,101 @@ class _RankingTabState extends State<RankingTab> {
     );
   }
 
-  Widget _buildPrivacyCard() {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 2.0),
+  /// Barre unifiée et minimaliste regroupant la portée et les toggles de visibilité
+  Widget _buildMinimalistBar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+      child: Column(
+        children: [
+          // 1. Sélecteur de portée (Amis / Pays / Monde)
+          Row(
+            children: [
+              Expanded(child: _scopeButton(RankingScope.friends, '👥 Amis')),
+              const SizedBox(width: 6),
+              Expanded(child: _scopeButton(RankingScope.country, '${widget.myCountryCode.flagEmoji} Pays')),
+              const SizedBox(width: 6),
+              Expanded(child: _scopeButton(RankingScope.world, '🌍 Monde')),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          // 2. Visibilité discrète (Badges cliquables minimalistes)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Text(
+                'Visibilité :',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _minimalVisibilityToggle(
+                label: 'Amis',
+                isActive: _friendsVisible,
+                onTap: () => _applyVisibility(!_friendsVisible, _worldVisible),
+              ),
+              const SizedBox(width: 6),
+              _minimalVisibilityToggle(
+                label: 'Public',
+                isActive: _worldVisible,
+                onTap: () => _applyVisibility(_friendsVisible, !_worldVisible),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _minimalVisibilityToggle({
+    required String label,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: isActive
+              ? (isDark ? Colors.teal.shade900.withValues(alpha: 0.4) : Colors.teal.shade50)
+              : (isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isActive
+                ? Theme.of(context).primaryColor
+                : (isDark ? const Color(0xFF333333) : Colors.grey.shade300),
+            width: 1,
+          ),
+        ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.visibility, color: Theme.of(context).primaryColor, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SwitchListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Amis', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      value: _friendsVisible,
-                      onChanged: (v) => _applyVisibility(v, _worldVisible),
-                    ),
-                  ),
-                  Expanded(
-                    child: SwitchListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Mondial', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                      value: _worldVisible,
-                      onChanged: (v) => _applyVisibility(_friendsVisible, v),
-                    ),
-                  ),
-                ],
+            Icon(
+              isActive ? Icons.visibility : Icons.visibility_off,
+              size: 13,
+              color: isActive
+                  ? Theme.of(context).primaryColor
+                  : (isDark ? Colors.grey.shade500 : Colors.grey.shade400),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal,
+                color: isActive
+                    ? Theme.of(context).primaryColor
+                    : (isDark ? Colors.grey.shade400 : Colors.grey.shade600),
               ),
             ),
           ],
@@ -159,52 +222,37 @@ class _RankingTabState extends State<RankingTab> {
     );
   }
 
-  Widget _buildScopeSelector() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: Row(
-        children: [
-          Expanded(child: _scopeChip(RankingScope.friends, Icons.group, 'Amis')),
-          const SizedBox(width: 8),
-          Expanded(
-              child: _scopeChip(RankingScope.country, Icons.flag,
-                  '${widget.myCountryCode.flagEmoji} Pays')),
-          const SizedBox(width: 8),
-          Expanded(child: _scopeChip(RankingScope.world, Icons.public, 'Monde')),
-        ],
-      ),
-    );
-  }
-
-  Widget _scopeChip(RankingScope scope, IconData icon, String label) {
+  Widget _scopeButton(RankingScope scope, String label) {
     final selected = _scope == scope;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       onTap: () {
         if (_scope != scope) {
           setState(() => _scope = scope);
           _load();
         }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: selected ? Theme.of(context).primaryColor : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-              color: selected ? Theme.of(context).primaryColor : Colors.grey.shade400),
+          color: selected
+              ? Theme.of(context).primaryColor
+              : (isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade100),
+          borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 16, color: selected ? Colors.white : null),
-            const SizedBox(width: 6),
-            Text(label,
-                style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 13,
-                    color: selected ? Colors.white : null)),
-          ],
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: selected ? FontWeight.bold : FontWeight.w500,
+            fontSize: 12,
+            color: selected
+                ? Colors.white
+                : (isDark ? Colors.grey.shade300 : Colors.grey.shade800),
+          ),
         ),
       ),
     );
@@ -266,32 +314,32 @@ class _RankingTabState extends State<RankingTab> {
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.35),
+                  color: Colors.black.withValues(alpha: 0.4),
                   borderRadius: BorderRadius.circular(16)),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.lock_rounded, size: 48, color: Colors.white),
-                    const SizedBox(height: 12),
-                    const Text('Classement verrouillé',
+                    const Icon(Icons.lock_outline, size: 44, color: Colors.white),
+                    const SizedBox(height: 10),
+                    const Text('Classement Masqué',
                         style: TextStyle(
                             color: Colors.white,
-                            fontSize: 18,
+                            fontSize: 17,
                             fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
+                    const SizedBox(height: 4),
                     Text(
                       _scope == RankingScope.friends
-                          ? 'Activez le classement Amis pour y apparaître.'
-                          : 'Activez le classement Mondial pour y apparaître.',
+                          ? 'Activez la visibilité Amis pour participer.'
+                          : 'Activez la visibilité Publique pour participer.',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white70),
+                      style: const TextStyle(color: Colors.white70, fontSize: 13),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
                     ElevatedButton.icon(
                       onPressed: _enableCurrentScope,
-                      icon: const Icon(Icons.remove_red_eye),
-                      label: const Text('Me mettre en prévisualisation'),
+                      icon: const Icon(Icons.visibility, size: 16),
+                      label: const Text('Rendre visible'),
                       style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
                           foregroundColor: Colors.black87),
@@ -317,7 +365,7 @@ class _RankingTabState extends State<RankingTab> {
         padding: const EdgeInsets.all(24),
         child: Text(
           _scope == RankingScope.friends
-              ? 'Aucun ami n\'a encore activé le classement.'
+              ? 'Aucun ami n\'a encore activé ce classement.'
               : 'Personne n\'a encore rejoint ce classement.',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.grey),
@@ -327,46 +375,44 @@ class _RankingTabState extends State<RankingTab> {
 
     return Column(
       children: [
-        // Bannière mon rang
         if (_result?.myRank != null)
           Container(
-            margin: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            margin: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               gradient: LinearGradient(colors: [
                 Theme.of(context).primaryColor,
                 Theme.of(context).colorScheme.secondary
               ]),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.stars, color: Colors.white),
+                const Icon(Icons.stars, color: Colors.white, size: 18),
                 const SizedBox(width: 8),
-                Text('Votre position : ${_result!.myRank}ᵉ',
+                Text('Votre rang : ${_result!.myRank}ᵉ',
                     style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
-                        fontSize: 16)),
-                const SizedBox(width: 12),
+                        fontSize: 14)),
+                const SizedBox(width: 10),
                 if (me?.scoreEvolution != null)
-                  EvolutionArrow(evolution: me!.scoreEvolution, fontSize: 13),
+                  EvolutionArrow(evolution: me!.scoreEvolution, fontSize: 12),
               ],
             ),
           ),
         Expanded(
           child: ListView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 90),
+            padding: const EdgeInsets.fromLTRB(12, 6, 12, 90),
             itemCount: entries.length + (meNotInList ? 2 : 0),
             itemBuilder: (context, index) {
               if (meNotInList && index == entries.length) {
                 return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
+                    padding: EdgeInsets.symmetric(vertical: 6),
                     child: Center(
                         child: Text('⋯',
-                            style:
-                                TextStyle(fontSize: 24, color: Colors.grey))));
+                            style: TextStyle(fontSize: 20, color: Colors.grey))));
               }
               if (meNotInList && index == entries.length + 1) {
                 return _entryCard(me, 0, forcedRankText: '#${_result?.myRank}');
@@ -392,14 +438,16 @@ class _RankingTabState extends State<RankingTab> {
     }
 
     return Card(
-      margin: const EdgeInsets.symmetric(vertical: 5),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      elevation: 1,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         side: isMe
-            ? BorderSide(color: Theme.of(context).primaryColor, width: 2)
+            ? BorderSide(color: Theme.of(context).primaryColor, width: 1.5)
             : BorderSide.none,
       ),
       child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
         onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
@@ -409,13 +457,12 @@ class _RankingTabState extends State<RankingTab> {
                   rankingService: widget.rankingService),
             )),
         leading: CircleAvatar(
-          radius: 22,
+          radius: 18,
           backgroundColor: medalColor ?? Colors.grey.shade200,
           child: medalColor != null
-              ? const Icon(Icons.emoji_events, color: Colors.white, size: 22)
+              ? const Icon(Icons.emoji_events, color: Colors.white, size: 18)
               : Text(rankText,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 13)),
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
         ),
         title: Row(
           children: [
@@ -424,22 +471,21 @@ class _RankingTabState extends State<RankingTab> {
               isMe ? '${entry.displayName} (moi)' : entry.displayName,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
+                  fontSize: 14,
                   fontWeight: isMe ? FontWeight.bold : FontWeight.w600),
             )),
             const SizedBox(width: 6),
-            Text(entry.countryCode.flagEmoji,
-                style: const TextStyle(fontSize: 16)),
+            Text(entry.countryCode.flagEmoji, style: const TextStyle(fontSize: 14)),
           ],
         ),
         subtitle: Row(
           children: [
             Expanded(
               child: Text(
-                '🔥 ${entry.streak}j • 🏅 ${entry.badgesUnlocked} • 🎯 ${entry.goalProgress.toStringAsFixed(0)}%',
+                '🔥 ${entry.streak}j • 🏆 ${entry.badgesUnlocked} • 🎯 ${entry.goalProgress.toStringAsFixed(0)}%',
                 style: const TextStyle(fontSize: 11),
               ),
             ),
-            // Flèche d'évolution du score
             EvolutionArrow(evolution: entry.scoreEvolution, fontSize: 11),
           ],
         ),
@@ -450,6 +496,7 @@ class _RankingTabState extends State<RankingTab> {
             Text('${entry.score.toStringAsFixed(0)} pts',
                 style: TextStyle(
                     fontWeight: FontWeight.bold,
+                    fontSize: 14,
                     color: Theme.of(context).primaryColor)),
             Text('${level.emoji} Niv. ${level.level}',
                 style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),

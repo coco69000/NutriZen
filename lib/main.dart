@@ -2667,7 +2667,6 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         final count = await _usageTrackerService.getScanAnalysisCount();
         if (count < UserLimits.freeScanAnalysisPerDay) {
           canScan = true;
-          await _usageTrackerService.incrementScanAnalysis();
         } else {
           if (mounted) ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -4400,24 +4399,28 @@ class _DashboardTabState extends State<DashboardTab> {
       final goalStr = widget.currentGoals.weightGoalType;
 
       final String prompt = '''
-      Tu es un coach sportif et bien-être ultra-motivant et créatif.
+      Tu es un coach sportif et bien-être motivant. Rédige en français parfait, fluide, soigné et direct (sans aucune faute ni répétition).
       Profil : $profileStr, Objectif : $goalStr.
       
-      Propose un PETIT DÉFI UNIQUE, inattendu et faisable aujourd'hui en moins de 5 minutes.
-      Exemples: "Faire 15 squats avant le déjeuner", "Boire 1 grand verre d'eau au réveil", "Faire 3 minutes d'étirement en respirant profondément", "Remplacer sa collation par un fruit".
-      Ne donne qu'un seul défi, simple à actionner pour donner un sentiment d'accomplissement (gamification).
+      Propose un UNIQUE défi quotidien bien-être / santé, réalisable aujourd'hui en moins de 5 minutes.
+      Exemples de formats attendus :
+      - "Boire 1 grand verre d'eau citronnée au réveil"
+      - "Faire 15 flexions de jambes avant le déjeuner"
+      - "Remplacer le dessert sucré par une pomme ou une poire"
+      - "Prendre les escaliers au lieu de l'ascenseur toute la journée"
       
-      Retourne UNIQUEMENT du JSON strict :
+      Retourne STRICTEMENT du JSON valide au format suivant :
       {
-        "title": "Titre très court et dynamique",
-        "description": "Explication rapide de comment le faire",
+        "title": "Titre court, clair et motivant",
+        "description": "Consigne simple et précise en 1 ou 2 phrases concrètes",
         "difficulty": "Facile, Moyen ou Difficile"
       }
       ''';
 
+      // ✅ Baisse de la température de 0.8 à 0.4 pour garantir une grammaire et un français impeccables
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
-        temperature: 0.8,
+        temperature: 0.4,
       );
 
       if (result != null) {
@@ -4428,7 +4431,7 @@ class _DashboardTabState extends State<DashboardTab> {
         await _saveDailyChallengeState();
       }
     } catch (e) {
-      print("Erreur création défi: $e");
+      debugPrint("Erreur création défi: $e");
     } finally {
       if (mounted) setState(() => _isLoadingDailyChallenge = false);
     }
@@ -6281,10 +6284,6 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Suivi des Activités Physiques'),
-        automaticallyImplyLeading: false,
-      ),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Column(
@@ -7719,10 +7718,6 @@ class _EvolutionTabState extends State<EvolutionTab> {
       ..sort((a, b) => b.date.compareTo(a.date));
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Évolution et Projections'),
-        automaticallyImplyLeading: false,
-      ),
       body: Column(
         children: [
           Expanded(
@@ -9765,10 +9760,6 @@ class _CaloriesTabState extends State<CaloriesTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Suivi des Calories'),
-        automaticallyImplyLeading: false,
-      ),
       body: Column(
         children: [
           Padding(
@@ -10823,21 +10814,6 @@ class _FastingTabState extends State<FastingTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mon Programme de Jeûne'),
-        automaticallyImplyLeading: false,
-        actions: [
-          if (_isFastingActive)
-            TextButton.icon(
-              icon: const Icon(Icons.stop_circle_outlined, color: Colors.white),
-              label: const Text(
-                'TERMINER',
-                style: TextStyle(color: Colors.white),
-              ),
-              onPressed: () => _showStopFastDialog(),
-            ),
-        ],
-      ),
       body:
           _isLoadingProgram
               ? const Center(child: CircularProgressIndicator())
@@ -11675,10 +11651,6 @@ class _ScanHistoryTabState extends State<ScanHistoryTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Historique des Scans'),
-        automaticallyImplyLeading: false,
-      ),
       body:
           widget.scannedProducts.isEmpty
               ? const Center(
@@ -12718,10 +12690,6 @@ class _GoalsTabState extends State<GoalsTab> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes Objectifs'),
-        automaticallyImplyLeading: false,
-      ),
       body: Form(
         key: _formKey,
         child: ListView(
@@ -12968,10 +12936,6 @@ class _SubscriptionPageState extends State<SubscriptionPage> {
     final streak = widget.usageTrackerService.currentStreak;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mon Abonnement'),
-        automaticallyImplyLeading: false,
-      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
