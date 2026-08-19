@@ -1,16 +1,27 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class UsdaNlpService {
   final String _usdaApiKey;
 
   UsdaNlpService({String? apiKey})
-      : _usdaApiKey = apiKey ?? const String.fromEnvironment('USDA_API_KEY');
+      // ✅ CORRECTION : Fallback et avertissement clair si la clé est manquante
+      : _usdaApiKey = (apiKey != null && apiKey.isNotEmpty) 
+          ? apiKey 
+          : (const bool.hasEnvironment('USDA_API_KEY') 
+              ? const String.fromEnvironment('USDA_API_KEY') 
+              : 'DEMO_KEY');
 
   // MOTEUR NLP POUR CONVERTIR LES MESURES EN GRAMMES
   double parseMeasureToGrams(String measureText) {
     String m = measureText.toLowerCase().trim();
-    if (m.isEmpty || m == '1' || m == '1.0' || m == 'un' || m == 'une' || m == 'portion') {
+    if (m.isEmpty ||
+        m == '1' ||
+        m == '1.0' ||
+        m == 'un' ||
+        m == 'une' ||
+        m == 'portion') {
       return 100.0;
     }
 
@@ -50,6 +61,10 @@ class UsdaNlpService {
     String ingredientName,
     String measureText,
   ) async {
+    if (_usdaApiKey == 'DEMO_KEY' || _usdaApiKey.isEmpty) {
+      debugPrint('⚠️ AVERTISSEMENT : Clé API USDA manquante. Utilisation de valeurs par défaut estimées.');
+      return {'calories': 150.0, 'proteins': 10.0, 'carbs': 15.0, 'fats': 5.0};
+    }
     double weightInGrams = parseMeasureToGrams(measureText);
     String cleanName =
         ingredientName

@@ -23,6 +23,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/activities/exercise_library_screen.dart';
 import 'services/service_locator.dart';
+import 'services/notification_service.dart';
 import 'services/exercise_library_service.dart';
 import 'onboarding_flow_screen.dart';
 import 'models/badge_model.dart';
@@ -63,7 +64,6 @@ int safeParseInt(dynamic val, [int defaultVal = 0]) {
   return int.tryParse(val.toString()) ?? defaultVal;
 }
 
-
 class AppStateProvider extends ChangeNotifier {
   final FirestoreService _firestoreService;
   List<FoodEntry> allFoodEntries = [];
@@ -83,11 +83,13 @@ class AppStateProvider extends ChangeNotifier {
       FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
-    allActivities = await _firestoreService.getCollection<ActivityEntry>(
-      'activities',
-      ActivityEntry.fromFirestore,
-      (e) => e.toFirestore(),
-    );
+    allActivities = await _firestoreService
+        .getCollectionForMonth<ActivityEntry>(
+          'activities',
+          selectedMonth,
+          ActivityEntry.fromFirestore,
+          (e) => e.toFirestore(),
+        );
     allWeightEntries = await _firestoreService.getCollection<WeightEntry>(
       'weightEntries',
       WeightEntry.fromFirestore,
@@ -104,6 +106,13 @@ class AppStateProvider extends ChangeNotifier {
       FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
+    allActivities = await _firestoreService
+        .getCollectionForMonth<ActivityEntry>(
+          'activities',
+          month,
+          ActivityEntry.fromFirestore,
+          (e) => e.toFirestore(),
+        );
     notifyListeners();
   }
 
@@ -285,18 +294,23 @@ class NutritionApp extends StatelessWidget {
             useMaterial3: true,
             visualDensity: VisualDensity.adaptivePlatformDensity,
             scaffoldBackgroundColor: Colors.black,
-            
+
             // --- CARTES (Bordure subtile pour contraster avec le fond noir pur) ---
             cardTheme: const CardThemeData(
-              color: Color(0xFF121212), // Gris très foncé pour le fond de la carte
+              color: Color(
+                0xFF121212,
+              ), // Gris très foncé pour le fond de la carte
               elevation: 0,
               margin: EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.all(Radius.circular(20.0)),
-                side: BorderSide(color: Color(0xFF2A2A2A), width: 1.5), // Bordure gris foncé
+                side: BorderSide(
+                  color: Color(0xFF2A2A2A),
+                  width: 1.5,
+                ), // Bordure gris foncé
               ),
             ),
-            
+
             // --- APP BAR ---
             appBarTheme: const flutter.AppBarTheme(
               backgroundColor: Colors.black,
@@ -315,7 +329,7 @@ class NutritionApp extends StatelessWidget {
               ),
               iconTheme: IconThemeData(color: Colors.white),
             ),
-            
+
             // --- BOUTONS ÉLEVÉS (Inversé : Blanc sur Noir) ---
             elevatedButtonTheme: flutter.ElevatedButtonThemeData(
               style: flutter.ElevatedButton.styleFrom(
@@ -335,7 +349,7 @@ class NutritionApp extends StatelessWidget {
                 ),
               ),
             ),
-            
+
             // --- BOUTONS TEXTE ---
             textButtonTheme: flutter.TextButtonThemeData(
               style: flutter.TextButton.styleFrom(
@@ -346,7 +360,7 @@ class NutritionApp extends StatelessWidget {
                 ),
               ),
             ),
-            
+
             // --- FAB (Bouton Flottant) ---
             floatingActionButtonTheme: flutter.FloatingActionButtonThemeData(
               backgroundColor: Colors.white,
@@ -371,7 +385,10 @@ class NutritionApp extends StatelessWidget {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.all(Radius.circular(12)),
-                borderSide: BorderSide(color: Colors.white, width: 2), // S'illumine en blanc au focus
+                borderSide: BorderSide(
+                  color: Colors.white,
+                  width: 2,
+                ), // S'illumine en blanc au focus
               ),
               labelStyle: TextStyle(color: Colors.white70),
               hintStyle: TextStyle(color: Colors.white38),
@@ -383,14 +400,29 @@ class NutritionApp extends StatelessWidget {
               thickness: 1,
             ),
             iconTheme: const IconThemeData(color: Colors.white),
-            
+
             // --- TYPOGRAPHIE (Forcer le blanc par défaut pour la lisibilité) ---
             textTheme: const TextTheme(
-              headlineLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              headlineMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              headlineSmall: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              titleLarge: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-              titleMedium: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+              headlineLarge: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              headlineMedium: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              headlineSmall: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+              titleLarge: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
+              titleMedium: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w500,
+              ),
               bodyLarge: TextStyle(color: Colors.white),
               bodyMedium: TextStyle(color: Colors.white70),
               bodySmall: TextStyle(color: Colors.white54),
@@ -508,16 +540,26 @@ class FirestoreService {
   ) async {
     try {
       final startOfMonth = DateTime(focusMonth.year, focusMonth.month, 1);
-      final endOfMonth = DateTime(focusMonth.year, focusMonth.month + 1, 0, 23, 59, 59);
+      final endOfMonth = DateTime(
+        focusMonth.year,
+        focusMonth.month + 1,
+        0,
+        23,
+        59,
+        59,
+      );
 
-      final snapshot = await _userCollection<T>(
-        collectionName,
-        fromFirestore,
-        toFirestore,
-      )
-          .where('timestamp', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth))
-          .where('timestamp', isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth))
-          .get();
+      final snapshot =
+          await _userCollection<T>(collectionName, fromFirestore, toFirestore)
+              .where(
+                'timestamp',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startOfMonth),
+              )
+              .where(
+                'timestamp',
+                isLessThanOrEqualTo: Timestamp.fromDate(endOfMonth),
+              )
+              .get();
 
       return snapshot.docs.map((doc) => doc.data()).toList();
     } catch (e) {
@@ -753,27 +795,23 @@ class SubscriptionService {
 
   // Initialize subscription for new users (called on registration)
   Future<void> _initializeSubscription() async {
-    final docRef = _db
-        .collection('users')
-        .doc(userId)
-        .collection('subscription')
-        .doc('status');
-    final doc = await docRef.get();
-    if (!doc.exists) {
-      await docRef.set({
-        'isPremium': false,
-        'startDate': FieldValue.serverTimestamp(),
-      });
-    }
+    final docRef = _db.collection('users').doc(userId).collection('subscription').doc('status');
+    // ✅ CORRECTION : Écriture directe avec merge, éliminant la condition de course
+    await docRef.set({
+      'isPremium': false,
+      'startDate': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   // Set subscription status (e.g., after purchase)
   Future<void> setPremiumStatus(bool isPremium) async {
     try {
       // On appelle la Cloud Function sécurisée au lieu d'écrire direct dans Firestore
-      final callable = FirebaseFunctions.instance.httpsCallable('simulatePurchase');
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'simulatePurchase',
+      );
       await callable.call({'isPremium': isPremium});
-      
+
       // Force le refresh du token utilisateur pour appliquer les nouveaux Custom Claims
       await FirebaseAuth.instance.currentUser?.getIdToken(true);
     } catch (e) {
@@ -838,6 +876,7 @@ class UsageTrackerService {
     }
     return count;
   }
+
   Future<void> incrementAiApiCall() => incrementApiCall('ai_api_calls');
 
   Future<int> getDeepSeekApiCallCount() => getAiApiCallCount();
@@ -1383,7 +1422,8 @@ class UserProfile {
       gymMode: gymMode ?? this.gymMode,
       goalHistory: goalHistory ?? this.goalHistory,
       countryCode: countryCode ?? this.countryCode,
-      friendsRankingVisible: friendsRankingVisible ?? this.friendsRankingVisible,
+      friendsRankingVisible:
+          friendsRankingVisible ?? this.friendsRankingVisible,
       worldRankingVisible: worldRankingVisible ?? this.worldRankingVisible,
     );
   }
@@ -1567,16 +1607,18 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
       await widget.firestoreService.updateDailyGoals(updatedGoals);
       widget.onGoalSet(); // Rafraîchit les données dans l'app
       if (mounted) Navigator.pop(context);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Nouvel objectif défini ! En route vers le succès !"),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Nouvel objectif défini ! En route vers le succès !"),
+            backgroundColor: Colors.green,
+          ),
+        );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+        );
     }
   }
 
@@ -2255,15 +2297,19 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
 
   Future<void> _checkBadges() async {
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('evaluateAndAwardBadges');
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'evaluateAndAwardBadges',
+      );
       final result = await callable.call();
-      
+
       if (result.data['success'] == true) {
         final awarded = List<String>.from(result.data['awarded'] ?? []);
         if (awarded.isNotEmpty && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('🏆 Nouveaux badges débloqués : ${awarded.join(", ")} !'),
+              content: Text(
+                '🏆 Nouveaux badges débloqués : ${awarded.join(", ")} !',
+              ),
               backgroundColor: Colors.amber.shade700,
             ),
           );
@@ -2288,12 +2334,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     await SL.habitService.recordMealTime(entry.name, DateTime.now());
     await _checkBadges();
 
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('"${entry.name}" ajouté au suivi.'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${entry.name}" ajouté au suivi.'),
+          backgroundColor: Colors.green,
+        ),
+      );
   }
 
   Future<void> _deleteFoodEntry(String id) async {
@@ -2304,12 +2351,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadFoodEntries();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Aliment supprimé."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Aliment supprimé."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addFastingSession(FastingSession session) async {
@@ -2320,12 +2368,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     );
     await _loadFastingSessions();
     await _checkBadges();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Session de jeûne enregistrée !"),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Session de jeûne enregistrée !"),
+          backgroundColor: Colors.green,
+        ),
+      );
   }
 
   Future<void> _deleteFastingSession(String id) async {
@@ -2336,12 +2385,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (s) => s.toFirestore(),
     );
     await _loadFastingSessions();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Session de jeûne supprimée."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Session de jeûne supprimée."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addScannedProduct(ScannedProduct product) async {
@@ -2352,12 +2402,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     );
     await _loadScannedProducts();
     await _checkBadges();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('"${product.name}" ajouté à l\'historique des scans.'),
-        backgroundColor: Colors.blue,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('"${product.name}" ajouté à l\'historique des scans.'),
+          backgroundColor: Colors.blue,
+        ),
+      );
   }
 
   Future<void> _deleteScannedProduct(String id) async {
@@ -2368,12 +2419,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (p) => p.toFirestore(),
     );
     await _loadScannedProducts();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Produit scanné supprimé."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Produit scanné supprimé."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addMealPlanEntry(MealPlanEntry entry) async {
@@ -2393,12 +2445,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadMealPlans();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Repas planifié supprimé."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Repas planifié supprimé."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addActivityEntry(ActivityEntry entry) async {
@@ -2408,12 +2461,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadActivities();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Activité "${entry.description}" ajoutée.'),
-        backgroundColor: Colors.green,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Activité "${entry.description}" ajoutée.'),
+          backgroundColor: Colors.green,
+        ),
+      );
   }
 
   Future<void> _updateAndGetStreak() async {
@@ -2421,23 +2475,27 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     if (user == null) return;
 
     try {
-      final callable = FirebaseFunctions.instance.httpsCallable('updateUserStreak');
+      final callable = FirebaseFunctions.instance.httpsCallable(
+        'updateUserStreak',
+      );
       final result = await callable.call();
-      
+
       final int newStreak = (result.data['streak'] as num?)?.toInt() ?? 0;
-      
+
       if (mounted) {
         setState(() {
           _currentStreak = newStreak;
         });
       }
       _usageTrackerService.currentStreak = newStreak;
-      
+
       // Mise à jour locale pour cohérence immédiate de l'UI
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('loginStreak', newStreak);
-      await prefs.setString('lastLoginDate', DateTime.now().toIso8601String().split('T')[0]);
-      
+      await prefs.setString(
+        'lastLoginDate',
+        DateTime.now().toIso8601String().split('T')[0],
+      );
     } catch (e) {
       debugPrint('Erreur mise à jour série sécurisée: $e');
     }
@@ -2487,12 +2545,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadActivities();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Activité supprimée."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Activité supprimée."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addWeightEntry(WeightEntry entry) async {
@@ -2519,14 +2578,15 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     // NOUVEAU: Appel à la vérification d'objectif après l'enregistrement
     _checkGoalAchievement(entry.weight);
 
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistré.',
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Poids de ${entry.weight.toStringAsFixed(1)} kg enregistré.',
+          ),
+          backgroundColor: Colors.green,
         ),
-        backgroundColor: Colors.green,
-      ),
-    );
+      );
   }
 
   // AJOUTEZ ces nouvelles méthodes dans la classe _MyAppTabsWrapperState
@@ -2628,12 +2688,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (w) => w.toFirestore(),
     );
     await _loadWeightEntries();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text("Poids supprimé."),
-        backgroundColor: Colors.red,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Poids supprimé."),
+          backgroundColor: Colors.red,
+        ),
+      );
   }
 
   Future<void> _addWaterEntry(WaterEntry entry) async {
@@ -2643,12 +2704,13 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       (e) => e.toFirestore(),
     );
     await _loadWaterEntries();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutés.'),
-        backgroundColor: Colors.lightBlue,
-      ),
-    );
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${entry.amount.toStringAsFixed(1)} L d\'eau ajoutés.'),
+          backgroundColor: Colors.lightBlue,
+        ),
+      );
   }
 
   Future<void> _handleScanProduct(String source) async {
@@ -2668,14 +2730,15 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         if (count < UserLimits.freeScanAnalysisPerDay) {
           canScan = true;
         } else {
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                "Limite de 5 scans IA atteinte (Free). Passez Premium !",
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  "Limite de 5 scans IA atteinte (Free). Passez Premium !",
+                ),
+                backgroundColor: Colors.red,
               ),
-              backgroundColor: Colors.red,
-            ),
-          );
+            );
           return;
         }
       }
@@ -2694,30 +2757,31 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
         ),
       );
     } else {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            "Traitement de ${scannedBarcodes.length} produits en arrière-plan...",
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Traitement de ${scannedBarcodes.length} produits en arrière-plan...",
+            ),
+            backgroundColor: Colors.teal,
           ),
-          backgroundColor: Colors.teal,
-        ),
-      );
+        );
       // Ici, tu pourras plus tard boucler sur scannedBarcodes pour les ajouter à un inventaire.
     }
   }
 
   // --- Fonctions de chargement des données depuis Firestore ---
-  DateTime _selectedFoodMonth = DateTime.now();
+  DateTime _selectedMonth = DateTime.now();
 
   Future<void> _loadFoodEntries() async {
-    await _loadFoodEntriesForMonth(_selectedFoodMonth);
+    await _loadFoodEntriesForMonth(_selectedMonth);
   }
 
   Future<void> _loadFoodEntriesForMonth(DateTime month) async {
-    _selectedFoodMonth = DateTime(month.year, month.month, 1);
+    _selectedMonth = DateTime(month.year, month.month, 1);
     final entries = await _firestoreService.getCollectionForMonth<FoodEntry>(
       'foodEntries',
-      _selectedFoodMonth,
+      _selectedMonth,
       FoodEntry.fromFirestore,
       (e) => e.toFirestore(),
     );
@@ -2761,11 +2825,18 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   }
 
   Future<void> _loadActivities() async {
-    final activities = await _firestoreService.getCollection<ActivityEntry>(
-      'activities',
-      ActivityEntry.fromFirestore,
-      (e) => e.toFirestore(),
-    );
+    await _loadActivitiesForMonth(_selectedMonth);
+  }
+
+  Future<void> _loadActivitiesForMonth(DateTime month) async {
+    _selectedMonth = DateTime(month.year, month.month, 1);
+    final activities = await _firestoreService
+        .getCollectionForMonth<ActivityEntry>(
+          'activities',
+          _selectedMonth,
+          ActivityEntry.fromFirestore,
+          (e) => e.toFirestore(),
+        );
     if (mounted) setState(() => _allActivities = activities);
   }
 
@@ -2779,12 +2850,28 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
   }
 
   Future<void> _loadWaterEntries() async {
-    final waterEntries = await _firestoreService.getCollection<WaterEntry>(
-      'waterEntries',
-      WaterEntry.fromFirestore,
-      (e) => e.toFirestore(),
-    );
+    await _loadWaterEntriesForMonth(_selectedMonth);
+  }
+
+  Future<void> _loadWaterEntriesForMonth(DateTime month) async {
+    _selectedMonth = DateTime(month.year, month.month, 1);
+    final waterEntries = await _firestoreService
+        .getCollectionForMonth<WaterEntry>(
+          'waterEntries',
+          _selectedMonth,
+          WaterEntry.fromFirestore,
+          (e) => e.toFirestore(),
+        );
     if (mounted) setState(() => _allWaterEntries = waterEntries);
+  }
+
+  Future<void> _loadMonthData(DateTime month) async {
+    _selectedMonth = DateTime(month.year, month.month, 1);
+    await Future.wait([
+      _loadFoodEntriesForMonth(_selectedMonth),
+      _loadActivitiesForMonth(_selectedMonth),
+      _loadWaterEntriesForMonth(_selectedMonth),
+    ]);
   }
 
   Future<void> _loadUserProfile() async {
@@ -2816,8 +2903,9 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       String goalType = _currentGoals.weightGoalType;
 
       if (_userProfile != null) {
-        final goal = _userProfile!.goalHistory
-            .firstWhereOrNull((g) => g.status == GoalStatus.inProgress);
+        final goal = _userProfile!.goalHistory.firstWhereOrNull(
+          (g) => g.status == GoalStatus.inProgress,
+        );
         if (goal != null) {
           goalType = goal.goalType;
           if (_allWeightEntries.isNotEmpty) {
@@ -2828,21 +2916,25 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           weightDelta = currentWeight - goal.startWeight;
 
           if (goal.goalType == 'lose' && goal.startWeight > goal.targetWeight) {
-            goalProgress = ((goal.startWeight - currentWeight) /
-                    (goal.startWeight - goal.targetWeight) *
-                    100)
-                .clamp(0, 100)
-                .toDouble();
-          } else if (goal.goalType == 'gain' && goal.targetWeight > goal.startWeight) {
-            goalProgress = ((currentWeight - goal.startWeight) /
-                    (goal.targetWeight - goal.startWeight) *
-                    100)
-                .clamp(0, 100)
-                .toDouble();
+            goalProgress =
+                ((goal.startWeight - currentWeight) /
+                        (goal.startWeight - goal.targetWeight) *
+                        100)
+                    .clamp(0, 100)
+                    .toDouble();
+          } else if (goal.goalType == 'gain' &&
+              goal.targetWeight > goal.startWeight) {
+            goalProgress =
+                ((currentWeight - goal.startWeight) /
+                        (goal.targetWeight - goal.startWeight) *
+                        100)
+                    .clamp(0, 100)
+                    .toDouble();
           } else if (goal.goalType == 'maintain') {
-            goalProgress = (100 - ((currentWeight - goal.targetWeight).abs() * 10))
-                .clamp(0, 100)
-                .toDouble();
+            goalProgress =
+                (100 - ((currentWeight - goal.targetWeight).abs() * 10))
+                    .clamp(0, 100)
+                    .toDouble();
           }
         }
       }
@@ -2854,44 +2946,58 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
           .fold(0.0, (s, a) => s + a.caloriesBurned);
 
       // Calcul des données d'adhérence & engagement
-      double waterAdherence = _currentGoals.targetWater > 0
-          ? ((_allWaterEntries
-                      .where((w) =>
-                          w.timestamp.year == now.year &&
-                          w.timestamp.month == now.month &&
-                          w.timestamp.day == now.day)
-                      .fold(0.0, (s, w) => s + w.amount) /
-                  _currentGoals.targetWater) *
-              100)
-              .clamp(0, 100)
-              .toDouble()
-          : 0;
+      double waterAdherence =
+          _currentGoals.targetWater > 0
+              ? ((_allWaterEntries
+                              .where(
+                                (w) =>
+                                    w.timestamp.year == now.year &&
+                                    w.timestamp.month == now.month &&
+                                    w.timestamp.day == now.day,
+                              )
+                              .fold(0.0, (s, w) => s + w.amount) /
+                          _currentGoals.targetWater) *
+                      100)
+                  .clamp(0, 100)
+                  .toDouble()
+              : 0;
 
-      final todayFood = _allFoodEntries.where((f) =>
-          f.timestamp.year == now.year &&
-          f.timestamp.month == now.month &&
-          f.timestamp.day == now.day);
+      final todayFood = _allFoodEntries.where(
+        (f) =>
+            f.timestamp.year == now.year &&
+            f.timestamp.month == now.month &&
+            f.timestamp.day == now.day,
+      );
       double todayCalories = todayFood.fold(0.0, (s, f) => s + f.calories);
-      double nutritionAdherence = _currentGoals.targetCalories > 0
-          ? (100 - ((todayCalories - _currentGoals.targetCalories).abs() / _currentGoals.targetCalories * 100))
-              .clamp(0, 100)
-              .toDouble()
-          : 50;
+      double nutritionAdherence =
+          _currentGoals.targetCalories > 0
+              ? (100 -
+                      ((todayCalories - _currentGoals.targetCalories).abs() /
+                          _currentGoals.targetCalories *
+                          100))
+                  .clamp(0, 100)
+                  .toDouble()
+              : 50;
 
       final fallbackName =
-          FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 'NutriZen User';
+          FirebaseAuth.instance.currentUser?.email?.split('@').first ??
+          'NutriZen User';
 
       final input = UserStatsInput(
-        displayName: (_userProfile?.fullName.isNotEmpty == true)
-            ? _userProfile!.fullName
-            : fallbackName,
+        displayName:
+            (_userProfile?.fullName.isNotEmpty == true)
+                ? _userProfile!.fullName
+                : fallbackName,
         countryCode: _userProfile?.countryCode ?? 'FR',
         nutritionAdherence: nutritionAdherence,
         mealsLogged: todayFood.length,
         waterAdherence: waterAdherence,
         weeklyKcal: weeklyKcal,
         steps: _currentSteps,
-        workoutsCount: _allActivities.where((a) => a.timestamp.isAfter(startOfWeek)).length,
+        workoutsCount:
+            _allActivities
+                .where((a) => a.timestamp.isAfter(startOfWeek))
+                .length,
         fastingSessions: _allFastingSessions.length,
         fastingAdherence: 80.0,
         goalProgress: goalProgress,
@@ -2930,7 +3036,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               addWaterEntry: _addWaterEntry,
               onScanProduct: _handleScanProduct,
               onMonthChanged: (selectedMonth) async {
-                await _loadFoodEntriesForMonth(selectedMonth);
+                await _loadMonthData(selectedMonth);
               },
               onViewScanHistory: () {
                 if (_tabController != null &&
@@ -3066,7 +3172,8 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               rankingService: _rankingService,
               myUid: widget.userId,
               myCountryCode: _userProfile?.countryCode ?? 'FR',
-              friendsRankingVisible: _userProfile?.friendsRankingVisible ?? false,
+              friendsRankingVisible:
+                  _userProfile?.friendsRankingVisible ?? false,
               worldRankingVisible: _userProfile?.worldRankingVisible ?? false,
               onRankingVisibilityChanged: (friends, world) async {
                 if (_userProfile == null) return;
@@ -3079,8 +3186,14 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
               },
               onPublishRankingStats: _publishRankingStats,
               userCurrentSteps: _currentSteps.toDouble(),
-              userTargetSteps: _userProfile?.activityLevel == 'very_active' ? 12000.0 : 10000.0,
-              userCaloriesBurned: _allActivities.fold(0.0, (s, a) => s + a.caloriesBurned),
+              userTargetSteps:
+                  _userProfile?.activityLevel == 'very_active'
+                      ? 12000.0
+                      : 10000.0,
+              userCaloriesBurned: _allActivities.fold(
+                0.0,
+                (s, a) => s + a.caloriesBurned,
+              ),
               userWeight: _userProfile?.weight ?? 70.0,
             ),
       ),
@@ -3091,9 +3204,10 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
     if (!_tabsLoading && _tabsInitialized) return;
 
     // --- NOUVEAU : Mise à jour de lastActive pour le social ---
-    await FirebaseFirestore.instance.collection('users').doc(widget.userId).set({
-      'lastActive': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseFirestore.instance.collection('users').doc(widget.userId).set(
+      {'lastActive': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
 
     await _loadUserProfile();
 
@@ -3110,7 +3224,7 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             addWaterEntry: _addWaterEntry,
             onScanProduct: _handleScanProduct,
             onMonthChanged: (selectedMonth) async {
-              await _loadFoodEntriesForMonth(selectedMonth);
+              await _loadMonthData(selectedMonth);
             },
             onViewScanHistory: () {
               if (_tabController != null &&
@@ -3219,8 +3333,14 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
             },
             onPublishRankingStats: _publishRankingStats,
             userCurrentSteps: _currentSteps.toDouble(),
-            userTargetSteps: _userProfile?.activityLevel == 'very_active' ? 12000.0 : 10000.0,
-            userCaloriesBurned: _allActivities.fold(0.0, (s, a) => s + a.caloriesBurned),
+            userTargetSteps:
+                _userProfile?.activityLevel == 'very_active'
+                    ? 12000.0
+                    : 10000.0,
+            userCaloriesBurned: _allActivities.fold(
+              0.0,
+              (s, a) => s + a.caloriesBurned,
+            ),
             userWeight: _userProfile?.weight ?? 70.0,
           ),
     };
@@ -3572,130 +3692,128 @@ class _MyAppTabsWrapperState extends State<MyAppTabsWrapper>
       );
     }
 
-    return DefaultTabController(
-      length: visibleTabs.length,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('NutriZen'),
-          leading: IconButton(
-            icon: const Icon(Icons.person),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder:
-                      (context) => UserProfileScreen(
-                        userId: widget.userId,
-                        firestoreService: _firestoreService,
-                        onProfileUpdated: _onUserProfileUpdated,
-                        initialProfile: _userProfile!,
-                        initialGoals: _currentGoals,
-                        allWeightEntries: _allWeightEntries,
-                        isPremiumUser: _isPremium,
-                        usageTrackerService: _usageTrackerService,
-                      ),
-                ),
-              );
-            },
-          ),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Center(
-                child: InkWell(
-                  onTap: _showRewardsDialog,
-                  borderRadius: BorderRadius.circular(20),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
+    // ✅ CORRECTION : Suppression de DefaultTabController. On utilise directement le Scaffold.
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('NutriZen'),
+        leading: IconButton(
+          icon: const Icon(Icons.person),
+          onPressed: () async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder:
+                    (context) => UserProfileScreen(
+                      userId: widget.userId,
+                      firestoreService: _firestoreService,
+                      onProfileUpdated: _onUserProfileUpdated,
+                      initialProfile: _userProfile!,
+                      initialGoals: _currentGoals,
+                      allWeightEntries: _allWeightEntries,
+                      isPremiumUser: _isPremium,
+                      usageTrackerService: _usageTrackerService,
                     ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.primaryContainer.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('🔥', style: TextStyle(fontSize: 16)),
-                        const SizedBox(width: 4),
-                        Flexible(
-                          child: Text(
-                            '$_currentStreak j',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Theme.of(context).colorScheme.primary,
-                              fontSize: 14,
-                              overflow: TextOverflow.ellipsis,
-                            ),
+              ),
+            );
+          },
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Center(
+              child: InkWell(
+                onTap: _showRewardsDialog,
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('🔥', style: TextStyle(fontSize: 16)),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(
+                          '$_currentStreak j',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).colorScheme.primary,
+                            fontSize: 14,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.military_tech),
-              tooltip: 'Mes Badges',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => BadgesScreen(badgeService: _badgeService),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.brightness_6),
-              onPressed: () => _showThemeSettings(context),
-            ),
-            IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder:
-                        (context) => TabManagementScreen(
-                          allTabs: _userTabs,
-                          availableTabBuilders: _availableTabBuilders,
-                        ),
-                  ),
-                );
-                if (result != null && result is List<UserTab>) {
-                  _updateUserTabs(result);
-                }
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: () async {
-                await AuthService().signOut();
-              },
-            ),
-          ],
-          bottom: TabBar(
-            controller: _tabController,
-            isScrollable: true,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.grey.shade300,
-            indicatorColor: Colors.white,
-            indicatorWeight: 4,
-            tabs:
-                visibleTabs
-                    .map((tab) => Tab(icon: Icon(tab.icon), text: tab.title))
-                    .toList(),
           ),
-        ),
-        body: TabBarView(
+          IconButton(
+            icon: const Icon(Icons.military_tech),
+            tooltip: 'Mes Badges',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BadgesScreen(badgeService: _badgeService),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.brightness_6),
+            onPressed: () => _showThemeSettings(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder:
+                      (context) => TabManagementScreen(
+                        allTabs: _userTabs,
+                        availableTabBuilders: _availableTabBuilders,
+                      ),
+                ),
+              );
+              if (result != null && result is List<UserTab>) {
+                _updateUserTabs(result);
+              }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await AuthService().signOut();
+            },
+          ),
+        ],
+        bottom: TabBar(
           controller: _tabController,
-          children: visibleTabs.map((tab) => tab.builder(context)).toList(),
+          isScrollable: true,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.grey.shade300,
+          indicatorColor: Colors.white,
+          indicatorWeight: 4,
+          tabs:
+              visibleTabs
+                  .map((tab) => Tab(icon: Icon(tab.icon), text: tab.title))
+                  .toList(),
         ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: visibleTabs.map((tab) => tab.builder(context)).toList(),
       ),
     );
   }
@@ -3958,17 +4076,19 @@ class _DashboardTabState extends State<DashboardTab> {
 
   Map<String, dynamic> _getGoalAdherence() {
     double percentage = 0.0;
-    String message = "Commencez à suivre vos données pour voir votre progression !";
+    String message =
+        "Commencez à suivre vos données pour voir votre progression !";
     bool goalReached = false;
 
-    if (widget.userProfile != null && widget.userProfile!.goalHistory.isNotEmpty) {
+    if (widget.userProfile != null &&
+        widget.userProfile!.goalHistory.isNotEmpty) {
       final currentGoal = widget.userProfile!.goalHistory.lastWhereOrNull(
         (g) => g.status == GoalStatus.inProgress,
       );
 
       if (currentGoal != null) {
         double currentWeight = widget.userProfile!.weight;
-        
+
         if (widget.allWeightEntries.isNotEmpty) {
           final sortedEntries = List<WeightEntry>.from(widget.allWeightEntries)
             ..sort((a, b) => a.date.compareTo(b.date));
@@ -3980,24 +4100,36 @@ class _DashboardTabState extends State<DashboardTab> {
 
         if (currentGoal.goalType == 'lose') {
           if (startWeight > targetWeight) {
-            percentage = ((startWeight - currentWeight) / (startWeight - targetWeight) * 100).clamp(0, 100).toDouble();
+            percentage =
+                ((startWeight - currentWeight) /
+                        (startWeight - targetWeight) *
+                        100)
+                    .clamp(0, 100)
+                    .toDouble();
           }
           if (currentWeight <= targetWeight) goalReached = true;
         } else if (currentGoal.goalType == 'gain') {
           if (targetWeight > startWeight) {
-            percentage = ((currentWeight - startWeight) / (targetWeight - startWeight) * 100).clamp(0, 100).toDouble();
+            percentage =
+                ((currentWeight - startWeight) /
+                        (targetWeight - startWeight) *
+                        100)
+                    .clamp(0, 100)
+                    .toDouble();
           }
           if (currentWeight >= targetWeight) goalReached = true;
         } else {
           final diff = (currentWeight - targetWeight).abs();
-          percentage = (100 - (diff * 10)).clamp(0, 100).toDouble(); // 1kg d'écart = 90%
-          
+          percentage =
+              (100 - (diff * 10)).clamp(0, 100).toDouble(); // 1kg d'écart = 90%
+
           if (percentage >= 90) {
             message = "Équilibre parfait ! Vous maintenez votre poids idéal.";
           } else {
-            message = "Attention, vous vous éloignez de votre zone de maintien.";
+            message =
+                "Attention, vous vous éloignez de votre zone de maintien.";
           }
-          goalReached = false; 
+          goalReached = false;
         }
 
         if (goalReached && currentGoal.goalType != 'maintain') {
@@ -4005,7 +4137,8 @@ class _DashboardTabState extends State<DashboardTab> {
           percentage = 100.0;
         } else if (currentGoal.goalType != 'maintain') {
           if (percentage >= 85) {
-            message = "Excellent ! Vous êtes très proche de votre objectif final.";
+            message =
+                "Excellent ! Vous êtes très proche de votre objectif final.";
           } else if (percentage >= 50) {
             message = "Vous avez fait plus de la moitié du chemin. Continuez !";
           } else if (percentage > 0) {
@@ -4265,28 +4398,29 @@ class _DashboardTabState extends State<DashboardTab> {
   Future<void> _generateGlobalAIAnalysis() async {
     final manualScore = _calculateManualLifestyleScore();
     if (manualScore == 0) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Oups, veuillez ajouter quelques données (repas, eau, etc.) avant de lancer l'analyse IA.",
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Oups, veuillez ajouter quelques données (repas, eau, etc.) avant de lancer l'analyse IA.",
+            ),
           ),
-        ),
-      );
+        );
       return;
     }
 
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Limite d'appels IA atteinte pour aujourd'hui. Passez Premium !",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Limite d'appels IA atteinte pour aujourd'hui. Passez Premium !",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
         return;
       }
     }
@@ -4363,12 +4497,13 @@ class _DashboardTabState extends State<DashboardTab> {
         throw Exception('Réponse IA vide');
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Oups, l'IA a rencontré une erreur: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Oups, l'IA a rencontré une erreur: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _isAnalyzingGlobal = false);
     }
@@ -4377,15 +4512,15 @@ class _DashboardTabState extends State<DashboardTab> {
   // NOUVELLE FONCTIONNALITÉ: Génération du défi quotidien par l'IA
   Future<void> _generateDailyChallengeWithAI() async {
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
+              backgroundColor: Colors.red,
+            ),
+          );
         return;
       }
     }
@@ -4467,10 +4602,7 @@ class _DashboardTabState extends State<DashboardTab> {
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  Colors.teal.shade800,
-                  Colors.teal.shade600,
-                ],
+                colors: [Colors.teal.shade800, Colors.teal.shade600],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
@@ -4787,15 +4919,16 @@ class _DashboardTabState extends State<DashboardTab> {
                           });
                           await _saveDailyChallengeState();
                           if (!mounted) return;
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                "🎉 Défi du jour accompli ! Bravo !",
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "🎉 Défi du jour accompli ! Bravo !",
+                                ),
+                                backgroundColor: Colors.green,
+                                behavior: SnackBarBehavior.floating,
                               ),
-                              backgroundColor: Colors.green,
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
+                            );
                         },
                 icon: Icon(
                   _isDailyChallengeCompleted ? Icons.check_circle : Icons.done,
@@ -4944,13 +5077,14 @@ class _DashboardTabState extends State<DashboardTab> {
                 ),
                 onPressed: () {
                   Navigator.pop(ctx);
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "Déduire l\'objectif avec l\'IA"',
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Allez dans l\'onglet "Profil > Mes Objectifs" et cliquez sur "Déduire l\'objectif avec l\'IA"',
+                        ),
                       ),
-                    ),
-                  );
+                    );
                 },
                 child: const Text('C\'est parti'),
               ),
@@ -5009,8 +5143,12 @@ class _DashboardTabState extends State<DashboardTab> {
               onPageChanged: (focusedDay) {
                 setState(() {
                   _focusedDay = focusedDay;
+                  // Sélectionne automatiquement le 1er jour du nouveau mois affiché
+                  _selectedDay = focusedDay;
                 });
-                widget.onMonthChanged(DateTime(focusedDay.year, focusedDay.month, 1));
+                widget.onMonthChanged(
+                  DateTime(focusedDay.year, focusedDay.month, 1),
+                );
               },
               calendarStyle: CalendarStyle(
                 todayDecoration: BoxDecoration(
@@ -5531,18 +5669,19 @@ class _DashboardTabState extends State<DashboardTab> {
   ) {
     Widget activeFastingWidget = const SizedBox.shrink();
     if (activeFastingSession != null) {
-      final Duration remainingTime = activeFastingSession.endTime.difference(
-        DateTime.now(),
-      );
+      final Duration remainingTime = activeFastingSession.endTime.difference(DateTime.now());
+      final bool isOverTime = remainingTime.isNegative; // ✅ CORRECTION : Détection du dépassement
+
       activeFastingWidget = Column(
         children: [
           _RecapItem(
-            icon: Icons.timer,
-            label: 'Jeûne en cours',
-            value: 'Fin dans ${_formatDuration(remainingTime)}',
-            color: Colors.lightGreen.shade700,
-            subtext:
-                'Débuté le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
+            icon: isOverTime ? Icons.warning_amber_rounded : Icons.timer,
+            label: isOverTime ? 'Jeûne en dépassement !' : 'Jeûne en cours',
+            value: isOverTime 
+                ? 'Dépassé de ${_formatDuration(remainingTime.abs())}' 
+                : 'Fin dans ${_formatDuration(remainingTime)}',
+            color: isOverTime ? Colors.red : Colors.lightGreen.shade700,
+            subtext: 'Débuté le ${DateFormat('d MMM HH:mm', 'fr_FR').format(activeFastingSession.startTime)}',
           ),
           const Divider(height: 16),
         ],
@@ -5881,27 +6020,28 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
   // Fonction pour estimer les calories d'une activité via l'IA
   Future<void> _analyzeActivityWithIA() async {
     if (_promptController.text.isEmpty) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Veuillez décrire votre activité.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Veuillez décrire votre activité.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       return;
     }
 
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Limite d'appels IA atteinte pour aujourd'hui (version Free).",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
         return;
       }
     }
@@ -5952,10 +6092,13 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         temperature: 0.3,
       );
 
-      if (mounted) Navigator.pop(context); // Ferme la boîte de dialogue de chargement
+      if (mounted)
+        Navigator.pop(context); // Ferme la boîte de dialogue de chargement
 
       if (result != null) {
-        final double caloriesBurned = safeParseDouble(result['estimated_calories']);
+        final double caloriesBurned = safeParseDouble(
+          result['estimated_calories'],
+        );
         final int durationMinutes = safeParseInt(result['duration_minutes']);
 
         widget.addActivity(
@@ -5979,12 +6122,13 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Erreur IA: Réseau ou serveur indisponible.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Erreur IA: Réseau ou serveur indisponible.'),
+            backgroundColor: Colors.red,
+          ),
+        );
     }
   }
 
@@ -5994,27 +6138,29 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
     bool isAtGym = false,
   }) async {
     if (!widget.isPremiumUser) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Cette fonctionnalité est réservée aux membres Premium.",
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Cette fonctionnalité est réservée aux membres Premium.",
+            ),
+            backgroundColor: Colors.amber,
           ),
-          backgroundColor: Colors.amber,
-        ),
-      );
+        );
       return;
     }
 
     // AJOUTÉ: Vérification pour s'assurer que le profil est bien chargé
     if (widget.userProfile == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Le profil utilisateur n'a pas pu être chargé, impossible de générer un plan.",
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Le profil utilisateur n'a pas pu être chargé, impossible de générer un plan.",
+            ),
+            backgroundColor: Colors.red,
           ),
-          backgroundColor: Colors.red,
-        ),
-      );
+        );
       return;
     }
 
@@ -6045,18 +6191,20 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
         throw Exception('Réponse IA vide');
       }
     } on SocketException {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Pas de connexion internet. Enregistrez manuellement pour l\'instant !',
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Pas de connexion internet. Enregistrez manuellement pour l\'instant !',
+            ),
+            backgroundColor: Colors.red,
           ),
-          backgroundColor: Colors.red,
-        ),
-      );
+        );
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Erreur IA: $e'), backgroundColor: Colors.red),
+        );
     } finally {
       setState(() => _isWorkoutLoading = false);
     }
@@ -6205,14 +6353,15 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
 
                           Navigator.pop(ctx);
                         } else {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Veuillez remplir les champs Description et Durée',
+                          if (mounted)
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Veuillez remplir les champs Description et Durée',
+                                ),
+                                backgroundColor: Colors.red,
                               ),
-                              backgroundColor: Colors.red,
-                            ),
-                          );
+                            );
                         }
                       },
                       child: const Text('Ajouter'),
@@ -6388,11 +6537,8 @@ class _ActivitiesTabState extends State<ActivitiesTab> {
                               Expanded(
                                 child: Text(
                                   "Votre Plan d'Entraînement IA (VIP)",
-                                  style: Theme.of(
-                                    context,
-                                  ).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
                                 ),
                               ),
                             ],
@@ -6721,11 +6867,7 @@ class ProgressPhoto {
   final String? imageUrl;
   final DateTime date;
 
-  ProgressPhoto({
-    this.localFile,
-    this.imageUrl,
-    required this.date,
-  });
+  ProgressPhoto({this.localFile, this.imageUrl, required this.date});
 }
 
 class EvolutionTab extends StatefulWidget {
@@ -6777,25 +6919,25 @@ class _EvolutionTabState extends State<EvolutionTab> {
     if (user == null) return;
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('progressPhotos')
-          .orderBy('date', descending: true)
-          .get();
+      final snapshot =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('progressPhotos')
+              .orderBy('date', descending: true)
+              .get();
 
       if (!mounted) return;
       setState(() {
-        _progressPhotos = snapshot.docs.map((doc) {
-          final data = doc.data();
-          final timestamp = data['date'] as Timestamp?;
-          final date = timestamp != null ? timestamp.toDate() : DateTime.now();
-          final url = data['imageUrl'] as String?;
-          return ProgressPhoto(
-            imageUrl: url,
-            date: date,
-          );
-        }).toList();
+        _progressPhotos =
+            snapshot.docs.map((doc) {
+              final data = doc.data();
+              final timestamp = data['date'] as Timestamp?;
+              final date =
+                  timestamp != null ? timestamp.toDate() : DateTime.now();
+              final url = data['imageUrl'] as String?;
+              return ProgressPhoto(imageUrl: url, date: date);
+            }).toList();
       });
     } catch (e) {
       debugPrint("Erreur chargement photos Firestore: $e");
@@ -6805,11 +6947,10 @@ class _EvolutionTabState extends State<EvolutionTab> {
   @override
   void didUpdateWidget(covariant EvolutionTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Si les données changent (ex: après une suppression), on met à jour les projections.
-    // C'est une méthode robuste pour garder l'UI synchronisée.
     if (widget.allWeightEntries.length != oldWidget.allWeightEntries.length ||
         widget.currentGoals != oldWidget.currentGoals ||
         widget.allFoodEntries.length != oldWidget.allFoodEntries.length) {
+      // ✅ CORRECTION : On appelle la méthode, qui contient déjà son propre setState sécurisé.
       _updateProjections();
     }
   }
@@ -6876,9 +7017,9 @@ class _EvolutionTabState extends State<EvolutionTab> {
         if (user == null) throw Exception("Utilisateur non connecté");
 
         final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('users/${user.uid}/progress_photos/$fileName');
+        final ref = FirebaseStorage.instance.ref().child(
+          'users/${user.uid}/progress_photos/$fileName',
+        );
 
         final file = File(pickedFile.path);
         await ref.putFile(file);
@@ -6891,20 +7032,16 @@ class _EvolutionTabState extends State<EvolutionTab> {
             .doc(user.uid)
             .collection('progressPhotos')
             .add({
-          'imageUrl': downloadUrl,
-          'date': Timestamp.fromDate(now),
-          'fileName': fileName,
-        });
+              'imageUrl': downloadUrl,
+              'date': Timestamp.fromDate(now),
+              'fileName': fileName,
+            });
 
         if (mounted) {
           setState(() {
             _progressPhotos.insert(
               0,
-              ProgressPhoto(
-                localFile: file,
-                imageUrl: downloadUrl,
-                date: now,
-              ),
+              ProgressPhoto(localFile: file, imageUrl: downloadUrl, date: now),
             );
           });
           Navigator.pop(context);
@@ -6925,15 +7062,15 @@ class _EvolutionTabState extends State<EvolutionTab> {
 
   Future<void> _analyzeEvolutionWithIA() async {
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Limite d'appels IA atteinte pour aujourd'hui."),
+              backgroundColor: Colors.red,
+            ),
+          );
         return;
       }
     }
@@ -6949,7 +7086,9 @@ class _EvolutionTabState extends State<EvolutionTab> {
         .join(", ");
     final String goal = widget.currentGoals.weightGoalType;
 
-    final profileInfo = widget.userProfile != null ? '''
+    final profileInfo =
+        widget.userProfile != null
+            ? '''
     Profil Utilisateur:
     - Sexe: ${widget.userProfile!.gender}
     - Age: ${widget.userProfile!.age}
@@ -6970,7 +7109,8 @@ class _EvolutionTabState extends State<EvolutionTab> {
     - Sports aimes: ${widget.userProfile!.likedSports}
     - Sports detestes: ${widget.userProfile!.dislikedSports}
     - Equipement: ${widget.userProfile!.availableEquipment.join(', ')}
-    ''' : 'Profil non disponible.';
+    '''
+            : 'Profil non disponible.';
 
     final prompt = '''
     Agis comme un coach de santé. Analyse l'évolution du poids de l'utilisateur.
@@ -6988,7 +7128,8 @@ class _EvolutionTabState extends State<EvolutionTab> {
       "projections": [70.5, 70.0, 69.5, 69.0, 68.5, 68.0, 67.5, 67.0]
     }
     IMPORTANT : "projections" DOIT être un tableau (Array) contenant EXACTEMENT 8 NOMBRES DÉCIMAUX (pas de string).
-    ''';    try {
+    ''';
+    try {
       final result = await SL.aiService.fetchJSONResponse(
         prompt: prompt,
         temperature: 0.5,
@@ -7035,12 +7176,13 @@ class _EvolutionTabState extends State<EvolutionTab> {
     } catch (e) {
       debugPrint('Erreur IA: $e');
       if (mounted) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Erreur IA: Réseau ou Serveur indisponible.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Erreur IA: Réseau ou Serveur indisponible.'),
+              backgroundColor: Colors.red,
+            ),
+          );
       }
     } finally {
       if (mounted) setState(() => _isAiAnalyzing = false);
@@ -7113,7 +7255,9 @@ class _EvolutionTabState extends State<EvolutionTab> {
                     ); // Le didUpdateWidget se chargera de rafraîchir
 
                     // 🚀 DÉTECTION DE PLATEAU MÉTABOLIQUE
-                    final recentWeights = widget.allWeightEntries.map((e) => e.weight).toList()..add(_currentWeightInput);
+                    final recentWeights =
+                        widget.allWeightEntries.map((e) => e.weight).toList()
+                          ..add(_currentWeightInput);
                     if (recentWeights.length >= 3) {
                       SL.expertSystem.evaluateMetabolicAdaptationDetailed(
                         recentWeights: recentWeights.take(3).toList(),
@@ -7121,12 +7265,13 @@ class _EvolutionTabState extends State<EvolutionTab> {
                       );
                     }
                   } else {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text("Veuillez entrer un poids valide."),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Veuillez entrer un poids valide."),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
                   }
                 },
                 child: const Text('Enregistrer'),
@@ -7434,30 +7579,49 @@ class _EvolutionTabState extends State<EvolutionTab> {
                       children: [
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: photo.localFile != null
-                              ? Image.file(photo.localFile!, fit: BoxFit.cover)
-                              : (photo.imageUrl != null && photo.imageUrl!.isNotEmpty
-                                  ? Image.network(
-                                      photo.imageUrl!,
-                                      fit: BoxFit.cover,
-                                      loadingBuilder: (context, child, loadingProgress) {
-                                        if (loadingProgress == null) return child;
-                                        return Center(
-                                          child: CircularProgressIndicator(
-                                            value: loadingProgress.expectedTotalBytes != null
-                                                ? loadingProgress.cumulativeBytesLoaded /
-                                                    loadingProgress.expectedTotalBytes!
-                                                : null,
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder: (context, error, stackTrace) =>
-                                          Container(
-                                            color: Colors.grey.shade300,
-                                            child: const Icon(Icons.broken_image, color: Colors.grey),
-                                          ),
-                                    )
-                                  : Container(color: Colors.grey.shade300)),
+                          child:
+                              photo.localFile != null
+                                  ? Image.file(
+                                    photo.localFile!,
+                                    fit: BoxFit.cover,
+                                  )
+                                  : (photo.imageUrl != null &&
+                                          photo.imageUrl!.isNotEmpty
+                                      ? Image.network(
+                                        photo.imageUrl!,
+                                        fit: BoxFit.cover,
+                                        loadingBuilder: (
+                                          context,
+                                          child,
+                                          loadingProgress,
+                                        ) {
+                                          if (loadingProgress == null)
+                                            return child;
+                                          return Center(
+                                            child: CircularProgressIndicator(
+                                              value:
+                                                  loadingProgress
+                                                              .expectedTotalBytes !=
+                                                          null
+                                                      ? loadingProgress
+                                                              .cumulativeBytesLoaded /
+                                                          loadingProgress
+                                                              .expectedTotalBytes!
+                                                      : null,
+                                            ),
+                                          );
+                                        },
+                                        errorBuilder:
+                                            (context, error, stackTrace) =>
+                                                Container(
+                                                  color: Colors.grey.shade300,
+                                                  child: const Icon(
+                                                    Icons.broken_image,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                      )
+                                      : Container(color: Colors.grey.shade300)),
                         ),
                         Positioned(
                           bottom: 8,
@@ -7473,7 +7637,10 @@ class _EvolutionTabState extends State<EvolutionTab> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              DateFormat('dd/MM/yy', 'fr_FR').format(photo.date),
+                              DateFormat(
+                                'dd/MM/yy',
+                                'fr_FR',
+                              ).format(photo.date),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 12,
@@ -8002,9 +8169,12 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     setState(() => _isProcessing = true);
 
     try {
-      final ocrJsonStr = await SL.mealVision.extractNutritionLabelOCR(File(image.path));
+      final ocrJsonStr = await SL.mealVision.extractNutritionLabelOCR(
+        File(image.path),
+      );
       if (ocrJsonStr != null) {
-        final cleanJson = ocrJsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
+        final cleanJson =
+            ocrJsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
         final Map<String, dynamic> data = json.decode(cleanJson);
 
         setState(() {
@@ -8021,11 +8191,13 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Impossible de lire le tableau nutritionnel. Entrez les valeurs manuellement.";
+        _errorMessage =
+            "Impossible de lire le tableau nutritionnel. Entrez les valeurs manuellement.";
         _isProcessing = false;
       });
     }
   }
+
   double? _globalEcoScoreValue;
   String? _globalEcoScoreJustification;
 
@@ -8477,15 +8649,15 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
       );
       if (result != null) {
         final health = result['health_analysis'] as Map<String, dynamic>? ?? {};
-        final env = result['environmental_analysis'] as Map<String, dynamic>? ?? {};
+        final env =
+            result['environmental_analysis'] as Map<String, dynamic>? ?? {};
 
         setState(() {
           // --- PARSING SANTÉ ---
           _analyzedIngredients = List<Map<String, dynamic>>.from(
             health['analyzed_ingredients'] ?? [],
           );
-          _aiOverallHealthVerdict =
-              health['overall_health_verdict'] as String?;
+          _aiOverallHealthVerdict = health['overall_health_verdict'] as String?;
           _aiSummary = health['health_summary'] as String?;
           if (_vegetarianStatus == 'unknown') {
             _vegetarianStatus =
@@ -8499,8 +8671,7 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           _ecoScoreValue = safeParseDouble(env['eco_score_value']);
           _globalEcoScoreGrade = env['global_eco_score_grade'] as String?;
           _globalEcoScoreValue = safeParseDouble(env['global_eco_score_value']);
-          _globalEcoScoreJustification =
-              env['global_justification'] as String?;
+          _globalEcoScoreJustification = env['global_justification'] as String?;
           _lifecycleSummary = env['lifecycle_summary'] as String?;
           _co2Info = env['co2_emissions'] as String?;
           _bonusPoints = env['bonus_points'] as List<dynamic>?;
@@ -8766,23 +8937,25 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                         source: 'Scan OFF',
                       ),
                     );
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '"${_productName!}" ajouté à votre journal !',
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            '"${_productName!}" ajouté à votre journal !',
+                          ),
+                          backgroundColor: Colors.green,
                         ),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
+                      );
                   } else {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Impossible d\'ajouter au journal: données nutritionnelles manquantes.',
+                    if (mounted)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Impossible d\'ajouter au journal: données nutritionnelles manquantes.',
+                          ),
+                          backgroundColor: Colors.red,
                         ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
+                      );
                   }
                 },
                 label: const Text('Ajouter au journal'),
@@ -9324,14 +9497,15 @@ class _CaloriesTabState extends State<CaloriesTab> {
                   );
                   Navigator.pop(ctx);
                 } else {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        "Veuillez remplir au moins le nom et les calories.",
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "Veuillez remplir au moins le nom et les calories.",
+                        ),
+                        backgroundColor: Colors.red,
                       ),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                    );
                 }
               },
               child: const Text('Ajouter'),
@@ -9351,14 +9525,15 @@ class _CaloriesTabState extends State<CaloriesTab> {
       final photoAnalysisCount =
           await widget.usageTrackerService.getPhotoAnalysisCount();
       if (photoAnalysisCount >= UserLimits.freePhotoAnalysisPerDay) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimité !",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Vous avez atteint la limite de 1 analyse photo IA par jour (version Free). Passez au Premium pour un usage illimité !",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
         return;
       }
     }
@@ -9390,14 +9565,15 @@ class _CaloriesTabState extends State<CaloriesTab> {
             source: 'Historique Scan OFF',
           ),
         );
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '"${historicalProduct.name}" ajouté depuis l\'historique des scans !',
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '"${historicalProduct.name}" ajouté depuis l\'historique des scans !',
+              ),
+              backgroundColor: Colors.green,
             ),
-            backgroundColor: Colors.green,
-          ),
-        );
+          );
         return;
       }
     }
@@ -9429,26 +9605,28 @@ class _CaloriesTabState extends State<CaloriesTab> {
             source: 'Open Food Facts',
           ),
         );
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '"${offProduct['product_name']}" ajouté depuis Open Food Facts !',
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '"${offProduct['product_name']}" ajouté depuis Open Food Facts !',
+              ),
+              backgroundColor: Colors.green,
             ),
-            backgroundColor: Colors.green,
-          ),
-        );
+          );
         return;
       }
     }
 
     // 4. Estimation par IA (pour les aliments non trouvés ou les ingrédients sans code-barres)
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          "Recherche dans Open Food Facts et analyse IA en cours...",
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Recherche dans Open Food Facts et analyse IA en cours...",
+          ),
         ),
-      ),
-    );
+      );
     try {
       final result = await _estimateCaloriesFromApi(input, isImage: isPhoto);
       if (result['calories'] > 0) {
@@ -9466,33 +9644,36 @@ class _CaloriesTabState extends State<CaloriesTab> {
           ),
         );
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              "Repas estimé et ajouté par l'IA : ${result['name']} !",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                "Repas estimé et ajouté par l'IA : ${result['name']} !",
+              ),
+              backgroundColor: Colors.green,
             ),
-            backgroundColor: Colors.green,
-          ),
-        );
+          );
       } else {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "L'IA n'a pas pu estimer les calories de manière fiable.",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "L'IA n'a pas pu estimer les calories de manière fiable.",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
       }
     } catch (e) {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur lors de l'estimation par IA: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de l'estimation par IA: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
     }
   }
 
@@ -9520,14 +9701,18 @@ class _CaloriesTabState extends State<CaloriesTab> {
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Analyse de l'assiette par IA en cours...")),
+        const SnackBar(
+          content: Text("Analyse de l'assiette par IA en cours..."),
+        ),
       );
     }
 
     try {
       // 2. Appel à Gemini Vision (et non DeepSeek)
-      final jsonStr =
-          await SL.mealVision.estimatePortionAndMacros(File(image.path), null);
+      final jsonStr = await SL.mealVision.estimatePortionAndMacros(
+        File(image.path),
+        null,
+      );
       if (jsonStr != null) {
         final cleanJson =
             jsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
@@ -9575,17 +9760,17 @@ class _CaloriesTabState extends State<CaloriesTab> {
     MealType? selectedMealType = _deduceMealTypeFromTime(DateTime.now());
 
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
         return;
       }
     }
@@ -9640,12 +9825,13 @@ class _CaloriesTabState extends State<CaloriesTab> {
                     isPhoto: false,
                   );
                 } else {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text("Veuillez décrire votre repas."),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Veuillez décrire votre repas."),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
                 }
               },
               child: const Text('Estimer'),
@@ -9717,14 +9903,15 @@ class _CaloriesTabState extends State<CaloriesTab> {
                     );
                     if (newRecipeFood != null) {
                       widget.addFoodEntry(newRecipeFood);
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Recette ajoutée : ${newRecipeFood.name}',
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Recette ajoutée : ${newRecipeFood.name}',
+                            ),
+                            backgroundColor: Colors.green,
                           ),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
+                        );
                     }
                   },
                 ),
@@ -9811,8 +9998,7 @@ class _CaloriesTabState extends State<CaloriesTab> {
                             value: type,
                             child: Text(type.toCapitalizedString()),
                           );
-                        })
-                        ,
+                        }),
                   ],
                 ),
               ],
@@ -10682,6 +10868,8 @@ class _FastingTabState extends State<FastingTab> {
     required DateTime startTime,
     String? planId,
   }) {
+    final DateTime targetEndTime = startTime.add(targetDuration);
+
     setState(() {
       _isFastingActive = true;
       _fastStartTime = startTime;
@@ -10690,19 +10878,35 @@ class _FastingTabState extends State<FastingTab> {
       _elapsedTime = DateTime.now().difference(startTime);
       _startTimer();
     });
+
     _saveActiveFastingStateToPrefs();
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Jeûne de ${_formatSessionDuration(targetDuration)} démarré !',
-        ),
-        backgroundColor: Colors.green,
-      ),
+
+    // 🔔 Programmation automatique de la fin du jeûne
+    SL.notificationService.scheduleNotification(
+      id: 999, // ID unique pour la fin du jeûne
+      title: "🎉 Objectif de Jeûne Atteint !",
+      body:
+          "Bravo ! Vous avez complété votre session de ${_formatSessionDuration(targetDuration)}. Vous pouvez entrer dans votre fenêtre d'alimentation.",
+      scheduledDate: targetEndTime,
+      channelId: NotificationService.channelFastingId,
     );
+
+    if (mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Jeûne démarré ! Fin prévue à ${DateFormat('HH:mm').format(targetEndTime)}.',
+          ),
+          backgroundColor: Colors.green,
+        ),
+      );
   }
 
   void _stopFast({bool saveSession = true, bool wasCancelled = false}) {
     _timer?.cancel();
+
+    // 🔔 Annule la notification programmée si l'utilisateur arrête manuellement
+    SL.notificationService.cancelNotification(999);
 
     if (saveSession && _isFastingActive && _fastStartTime != null) {
       final session = FastingSession(
@@ -10796,14 +11000,15 @@ class _FastingTabState extends State<FastingTab> {
     }
 
     if (mounted) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Jeûne ${plan.name} ajouté le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Jeûne ${plan.name} ajouté le ${DateFormat('d MMM', 'fr_FR').format(date)} !',
+            ),
+            backgroundColor: Colors.teal,
           ),
-          backgroundColor: Colors.teal,
-        ),
-      );
+        );
     }
   }
 
@@ -10849,7 +11054,10 @@ class _FastingTabState extends State<FastingTab> {
               }),
           onPageChanged: (focusedDay) {
             final prevMonth = _focusedDay.month;
-            setState(() => _focusedDay = focusedDay);
+            setState(() {
+              _focusedDay = focusedDay;
+              _selectedDay = focusedDay;
+            });
             if (focusedDay.month != prevMonth) {
               _loadOrGenerateProgramForCurrentMonth();
             }
@@ -10974,14 +11182,15 @@ class _FastingTabState extends State<FastingTab> {
                   // Si un jeûne est déjà planifié, on le démarre directement.
                   if (entryForSelectedDay != null && plan != null) {
                     if (plan.isPremium && !widget.isPremiumUser) {
-                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "Ce plan de jeûne est réservé aux membres Premium.",
+                      if (mounted)
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              "Ce plan de jeûne est réservé aux membres Premium.",
+                            ),
+                            backgroundColor: Colors.amber,
                           ),
-                          backgroundColor: Colors.amber,
-                        ),
-                      );
+                        );
                       return;
                     }
                     _showStartFastDialog(
@@ -11214,7 +11423,10 @@ class _FastingTabState extends State<FastingTab> {
                         Expanded(
                           child: Text(
                             "Jeûne prolongé (>24h). Écoutez votre corps.",
-                            style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ],
@@ -11230,7 +11442,9 @@ class _FastingTabState extends State<FastingTab> {
                         _stopFast(saveSession: true, wasCancelled: true);
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text("Jeûne rompu. Réalimentez-vous doucement (bouillon d'os, légumes cuits)."),
+                            content: Text(
+                              "Jeûne rompu. Réalimentez-vous doucement (bouillon d'os, légumes cuits).",
+                            ),
                             backgroundColor: Colors.orange,
                             duration: Duration(seconds: 6),
                           ),
@@ -11614,14 +11828,15 @@ class _FastingPlanSelectionScreenState
         onTap:
             isLocked
                 ? () {
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        "Ce programme est réservé aux utilisateurs Premium.",
+                  if (mounted)
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          "Ce programme est réservé aux utilisateurs Premium.",
+                        ),
+                        backgroundColor: Colors.amber,
                       ),
-                      backgroundColor: Colors.amber,
-                    ),
-                  );
+                    );
                 }
                 : () {
                   setState(() => _selectedPlan = plan);
@@ -11853,7 +12068,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     _lastNameController.text = _editableProfile.lastName ?? '';
     _ageController.text = _editableProfile.age.toString();
     _weightController.text = _editableProfile.weight.toStringAsFixed(1);
-    _bodyFatController.text = _editableProfile.bodyFatPercentage?.toStringAsFixed(1) ?? '';
+    _bodyFatController.text =
+        _editableProfile.bodyFatPercentage?.toStringAsFixed(1) ?? '';
     _heightController.text = _editableProfile.height.toStringAsFixed(1);
     _targetWeightController.text = _editableGoals.targetWeight.toStringAsFixed(
       1,
@@ -11892,7 +12108,8 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
     final weight =
         double.tryParse(_weightController.text) ?? _editableProfile.weight;
     final bodyFatPercentage =
-        double.tryParse(_bodyFatController.text) ?? _editableProfile.bodyFatPercentage;
+        double.tryParse(_bodyFatController.text) ??
+        _editableProfile.bodyFatPercentage;
     final height =
         double.tryParse(_heightController.text) ?? _editableProfile.height;
     final age = int.tryParse(_ageController.text) ?? _editableProfile.age;
@@ -11932,13 +12149,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
 
     // 2. AJUSTEMENT DYNAMIQUE DU TDEE (Basé sur les données réelles des 7 derniers jours)
     if (widget.allWeightEntries.length >= 2) {
-      final recentEntries = widget.allWeightEntries.where(
-        (e) => e.date.isAfter(DateTime.now().subtract(const Duration(days: 7)))
-      ).toList();
+      final recentEntries =
+          widget.allWeightEntries
+              .where(
+                (e) => e.date.isAfter(
+                  DateTime.now().subtract(const Duration(days: 7)),
+                ),
+              )
+              .toList();
 
       if (recentEntries.isNotEmpty) {
         // Ajustement léger (+/- 5%) selon la réponse métabolique réelle
-        double adaptiveFactor = SL.mealVision.adjustTDEE(calculatedTdee, 0.5, 0.5, 7) / calculatedTdee;
+        double adaptiveFactor =
+            SL.mealVision.adjustTDEE(calculatedTdee, 0.5, 0.5, 7) /
+            calculatedTdee;
         calculatedTdee *= adaptiveFactor;
       }
     }
@@ -11955,13 +12179,21 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
         targetCalories = calculatedTdee;
     }
 
+    // ✅ CORRECTION : Plancher de sécurité physiologique (jamais en dessous de 1200 kcal)
+    targetCalories = targetCalories.clamp(1200.0, 5000.0);
+
     final double targetProteins =
         weight * (_editableGoals.weightGoalType == 'gain' ? 2.0 : 1.8);
     final double targetFats = weight * 0.9;
+
     final double proteinCalories = targetProteins * 4;
     final double fatCalories = targetFats * 9;
-    final double targetCarbs =
-        (targetCalories - proteinCalories - fatCalories) / 4;
+
+    // ✅ CORRECTION : Les glucides comblent le reste. Si protéines/lipides > calories, on met 0.
+    double remainingCalories = targetCalories - proteinCalories - fatCalories;
+    if (remainingCalories < 0) remainingCalories = 0;
+
+    final double targetCarbs = remainingCalories / 4;
 
     setState(() {
       _editableGoals = _editableGoals.copyWith(
@@ -12045,12 +12277,13 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
       widget.onProfileUpdated();
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur lors de la sauvegarde: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de la sauvegarde: $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -12117,7 +12350,7 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           keyboardType: TextInputType.number,
                           onChanged: (_) => _updateGoalsFromProfile(),
                         ),
-                                _GoalTextField(
+                        _GoalTextField(
                           label: 'Poids (kg)',
                           controller: _weightController,
                           keyboardType: TextInputType.number,
@@ -12151,12 +12384,20 @@ class _UserProfileScreenState extends State<UserProfileScreen> {
                           padding: const EdgeInsets.symmetric(vertical: 8.0),
                           child: Row(
                             children: [
-                              const Icon(Icons.public, color: Colors.grey, size: 20),
+                              const Icon(
+                                Icons.public,
+                                color: Colors.grey,
+                                size: 20,
+                              ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   'Pays : ${Countries.nameOf(_editableProfile.countryCode)} ${_editableProfile.countryCode.flagEmoji} (Défini à l\'inscription)',
-                                  style: const TextStyle(color: Colors.grey, fontSize: 14, fontStyle: FontStyle.italic),
+                                  style: const TextStyle(
+                                    color: Colors.grey,
+                                    fontSize: 14,
+                                    fontStyle: FontStyle.italic,
+                                  ),
                                 ),
                               ),
                             ],
@@ -12565,7 +12806,8 @@ class _GoalsTabState extends State<GoalsTab> {
   late DailyGoal _editableGoals;
   double _currentWeight = 0.0;
 
-  final TextEditingController _currentWeightController = TextEditingController();
+  final TextEditingController _currentWeightController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -12586,17 +12828,17 @@ class _GoalsTabState extends State<GoalsTab> {
 
   Future<void> _deduceWeightGoalWithIA() async {
     if (!widget.isPremiumUser) {
-      final dailyCalls =
-          await widget.usageTrackerService.getAiApiCallCount();
+      final dailyCalls = await widget.usageTrackerService.getAiApiCallCount();
       if (dailyCalls >= widget.usageTrackerService.aiLimit) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Vous avez atteint la limite de 5 appels IA par jour (version Free). Passez au Premium pour un usage illimité !",
+              ),
+              backgroundColor: Colors.red,
             ),
-            backgroundColor: Colors.red,
-          ),
-        );
+          );
         return;
       }
     }
@@ -12664,26 +12906,29 @@ class _GoalsTabState extends State<GoalsTab> {
               .toStringAsFixed(1);
         });
 
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("IA: ${result['message']}"),
-            backgroundColor: Colors.blue.shade700,
-            duration: const Duration(seconds: 7),
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("IA: ${result['message']}"),
+              backgroundColor: Colors.blue.shade700,
+              duration: const Duration(seconds: 7),
+            ),
+          );
       } else {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Erreur de l'API IA."),
-            backgroundColor: Colors.red,
-          ),
-        );
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("Erreur de l'API IA."),
+              backgroundColor: Colors.red,
+            ),
+          );
       }
     } catch (e) {
       if (mounted) Navigator.pop(context);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
-      );
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Erreur: $e"), backgroundColor: Colors.red),
+        );
     }
   }
 
@@ -14188,6 +14433,7 @@ class ScannerPage extends StatefulWidget {
 class _ScannerPageState extends State<ScannerPage> {
   final MobileScannerController controller = MobileScannerController();
   final List<String> _scannedCodes = [];
+  bool _isProcessingCode = false; // ✅ AJOUTER CET ÉTAT
 
   @override
   void dispose() {
@@ -14216,23 +14462,33 @@ class _ScannerPageState extends State<ScannerPage> {
           Expanded(
             child: MobileScanner(
               controller: controller,
-              onDetect: (capture) {
+              onDetect: (capture) async {
+                // ✅ CORRECTION : Anti-rebond pour éviter les freeze et vibrations en boucle
+                if (_isProcessingCode) return;
+
                 final List<Barcode> barcodes = capture.barcodes;
                 if (barcodes.isEmpty) return;
                 final String? barcodeValue = barcodes.first.rawValue;
-                if (barcodeValue == null) return;
+                if (barcodeValue == null || _scannedCodes.contains(barcodeValue)) return;
 
-                if (!_scannedCodes.contains(barcodeValue)) {
-                  HapticFeedback.mediumImpact();
-                  setState(() {
-                    _scannedCodes.add(barcodeValue);
-                  });
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                _isProcessingCode = true;
+                HapticFeedback.mediumImpact();
+                setState(() {
+                  _scannedCodes.add(barcodeValue);
+                });
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: Text('Code ajouté: $barcodeValue'),
                       duration: const Duration(seconds: 1),
                     ),
                   );
+                }
+
+                await Future.delayed(const Duration(seconds: 1));
+                if (mounted) {
+                  _isProcessingCode = false;
                 }
               },
             ),

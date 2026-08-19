@@ -44,6 +44,7 @@ dependencies:
   cloud_firestore: ^6.3.0
   cloud_functions: ^6.2.0
   firebase_storage: ^13.0.0
+  firebase_messaging: ^16.0.0
   health: ^13.3.1
   lottie: ^3.1.2
   home_widget: ^0.4.0
@@ -52,6 +53,7 @@ dependencies:
   path_provider: ^2.1.5
   flutter_local_notifications: ^21.0.0
   timezone: ^0.11.0
+  flutter_timezone: ^3.0.1
 
 dev_dependencies:
   flutter_test:

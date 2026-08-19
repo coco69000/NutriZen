@@ -59,13 +59,15 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
 
   @override
   void initState() {
-  super.initState();
-  _selectedDay = _focusedDay;
+    super.initState();
+    _selectedDay = _focusedDay;
 
-  debugPrint("[TheMealDB] initState appelé - Lancement de _fetchDailySuggestions...");
-  
-  _fetchDailySuggestions();   // <--- Assure-toi que c'est bien cette ligne
-}
+    debugPrint(
+      "[TheMealDB] initState appelé - Lancement de _fetchDailySuggestions...",
+    );
+
+    _fetchDailySuggestions(); // <--- Assure-toi que c'est bien cette ligne
+  }
 
   @override
   void dispose() {
@@ -74,45 +76,10 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     super.dispose();
   }
 
-  // --- SCRAPING IMAGE BING AVEC LOGS ---
   Future<String?> _fetchImageUrl(String query) async {
-    debugPrint(
-      "🔍 [IA-IMAGE] Tentative d'extraction d'image Bing pour : $query",
-    );
-    try {
-      final url = Uri.parse(
-        'https://www.bing.com/images/search?q=${Uri.encodeComponent(query + " food recipe high quality")}&form=HDRSC3&first=1',
-      );
-      final response = await http.get(
-        url,
-        headers: {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-      );
-
-      if (response.statusCode == 200) {
-        final RegExp regex = RegExp(
-          r'(?:murl"|"murl"|murl&quot;)[:=]+(?:&quot;|")?(https?://[^"&;]+\.(?:jpg|jpeg|png))',
-        );
-        final match = regex.firstMatch(response.body);
-        if (match != null) {
-          debugPrint("✅ [IA-IMAGE] Image trouvée : ${match.group(1)}");
-          return match.group(1);
-        } else {
-          debugPrint(
-            "⚠️ [IA-IMAGE] Aucune image trouvée dans le HTML pour : $query",
-          );
-        }
-      } else {
-        debugPrint(
-          "❌ [IA-IMAGE] Erreur HTTP ${response.statusCode} lors de l'extraction d'image.",
-        );
-      }
-    } catch (e) {
-      debugPrint("❌ [IA-IMAGE] Erreur (Exception) extraction image: $e");
-    }
-    return null;
+    // ✅ CORRECTION : Le scraping Bing est instable et viole les règles des stores.
+    // Remplacement par une image générique de haute qualité via Unsplash.
+    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop"; 
   }
 
   // --- LISTE DE COURSES AUTOMATIQUE PAR DATE ---
@@ -141,206 +108,234 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
 
     final sortedDates = ingredientsByDate.keys.toList()..sort();
 
-showDialog(
+    showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setStateDialog) => AlertDialog(
-            title: const Text('🛒 Ma Liste de Courses'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child:
-                  ingredientsByDate.isEmpty
-                      ? const Text(
-                        "Aucun ingrédient pour les repas planifiés à venir.",
-                      )
-                      : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: sortedDates.length,
-                        itemBuilder: (context, index) {
-                          final date = sortedDates[index];
-                          // Filtrer les doublons quotidiens
-                          final uniqueIngredients =
-                              ingredientsByDate[date]!.toSet().toList();
+      builder:
+          (ctx) => StatefulBuilder(
+            builder:
+                (context, setStateDialog) => AlertDialog(
+                  title: const Text('🛒 Ma Liste de Courses'),
+                  content: SizedBox(
+                    width: double.maxFinite,
+                    child:
+                        ingredientsByDate.isEmpty
+                            ? const Text(
+                              "Aucun ingrédient pour les repas planifiés à venir.",
+                            )
+                            : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: sortedDates.length,
+                              itemBuilder: (context, index) {
+                                final date = sortedDates[index];
+                                // Filtrer les doublons quotidiens
+                                final uniqueIngredients =
+                                    ingredientsByDate[date]!.toSet().toList();
 
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                  top: 16.0,
-                                  bottom: 8.0,
-                                ),
-                                child: Text(
-                                  DateFormat(
-                                    'EEEE d MMMM',
-                                    'fr_FR',
-                                  ).format(date).toUpperCase(),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Theme.of(context).primaryColor,
-                                  ),
-                                ),
-                              ),
-                              ...uniqueIngredients.map(
-                                (ing) {
-                                  final isChecked = _checkedIngredients.contains(ing);
-                                  return CheckboxListTile(
-                                    value: isChecked,
-                                    onChanged: (bool? val) {
-                                      setStateDialog(() {
-                                        if (val == true) {
-                                          _checkedIngredients.add(ing);
-                                        } else {
-                                          _checkedIngredients.remove(ing);
-                                        }
-                                      });
-                                    },
-                                    title: Text(
-                                      ing,
-                                      style: TextStyle(
-                                        decoration: isChecked ? TextDecoration.lineThrough : null,
-                                        color: isChecked ? Colors.grey : null,
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 16.0,
+                                        bottom: 8.0,
+                                      ),
+                                      child: Text(
+                                        DateFormat(
+                                          'EEEE d MMMM',
+                                          'fr_FR',
+                                        ).format(date).toUpperCase(),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Theme.of(context).primaryColor,
+                                        ),
                                       ),
                                     ),
-                                    controlAffinity: ListTileControlAffinity.leading,
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    visualDensity: VisualDensity.compact,
-                                  );
-                                },
-                              ),
-                              const Divider(),
-                            ],
-                          );
-                        },
-                      ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  setStateDialog(() {
-                    _checkedIngredients.clear();
-                  });
-                },
-                child: const Text('RÉINITIALISER'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('FERMER'),
-              ),
-            ],
+                                    ...uniqueIngredients.map((ing) {
+                                      final isChecked = _checkedIngredients
+                                          .contains(ing);
+                                      return CheckboxListTile(
+                                        value: isChecked,
+                                        onChanged: (bool? val) {
+                                          setStateDialog(() {
+                                            if (val == true) {
+                                              _checkedIngredients.add(ing);
+                                            } else {
+                                              _checkedIngredients.remove(ing);
+                                            }
+                                          });
+                                        },
+                                        title: Text(
+                                          ing,
+                                          style: TextStyle(
+                                            decoration:
+                                                isChecked
+                                                    ? TextDecoration.lineThrough
+                                                    : null,
+                                            color:
+                                                isChecked ? Colors.grey : null,
+                                          ),
+                                        ),
+                                        controlAffinity:
+                                            ListTileControlAffinity.leading,
+                                        dense: true,
+                                        contentPadding: EdgeInsets.zero,
+                                        visualDensity: VisualDensity.compact,
+                                      );
+                                    }),
+                                    const Divider(),
+                                  ],
+                                );
+                              },
+                            ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () {
+                        setStateDialog(() {
+                          _checkedIngredients.clear();
+                        });
+                      },
+                      child: const Text('RÉINITIALISER'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('FERMER'),
+                    ),
+                  ],
+                ),
           ),
-      ),
     );
   }
 
   // --- SUGGESTIONS THEMEALDB AVEC LOGS ---
   // --- SUGGESTIONS THEMEALDB (VERSION CORRIGÉE ET ROBUSTE) ---
-// --- SUGGESTIONS THEMEALDB - VERSION FINALE (logs très précis) ---
-Future<void> _fetchDailySuggestions() async {
-  if (!mounted) return;
+  // --- SUGGESTIONS THEMEALDB - VERSION FINALE (logs très précis) ---
+  Future<void> _fetchDailySuggestions() async {
+    if (!mounted) return;
 
-  setState(() => _isLoadingApi = true);
+    setState(() => _isLoadingApi = true);
 
-  debugPrint("==================================================");
-  debugPrint("[TheMealDB] 🚀 DÉMARRAGE récupération suggestions quotidiennes");
+    debugPrint("==================================================");
+    debugPrint(
+      "[TheMealDB] 🚀 DÉMARRAGE récupération suggestions quotidiennes",
+    );
 
-  try {
-    // Catégories fiables selon TheMealDB en 2026
-    final List<String> categories = ['Chicken', 'Beef', 'Seafood', 'Dessert'];
+    try {
+      // Catégories fiables selon TheMealDB en 2026
+      final List<String> categories = ['Chicken', 'Beef', 'Seafood', 'Dessert'];
 
-    final List<dynamic> tempSuggestions = [];
+      final List<dynamic> tempSuggestions = [];
 
-    for (final String category in categories) {
-      debugPrint("\n[TheMealDB] === Catégorie : $category ===");
+      for (final String category in categories) {
+        debugPrint("\n[TheMealDB] === Catégorie : $category ===");
 
-      final Uri url = Uri.https(
-        'www.themealdb.com',
-        '/api/json/v1/1/filter.php',
-        {'c': category},
-      );
+        final Uri url = Uri.https(
+          'www.themealdb.com',
+          '/api/json/v1/1/filter.php',
+          {'c': category},
+        );
 
-      debugPrint("[TheMealDB] URL → $url");
+        debugPrint("[TheMealDB] URL → $url");
 
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
+        final response = await http
+            .get(url)
+            .timeout(const Duration(seconds: 15));
 
-      debugPrint("[TheMealDB] Status HTTP → ${response.statusCode}");
-      debugPrint("[TheMealDB] Taille réponse → ${response.body.length} caractères");
+        debugPrint("[TheMealDB] Status HTTP → ${response.statusCode}");
+        debugPrint(
+          "[TheMealDB] Taille réponse → ${response.body.length} caractères",
+        );
 
-      if (response.statusCode != 200) {
-        debugPrint("[TheMealDB] ❌ Erreur HTTP ${response.statusCode}");
-        continue;
-      }
-
-      final data = json.decode(response.body);
-
-      debugPrint("[TheMealDB] Clé 'meals' présente ? ${data.containsKey('meals')}");
-      debugPrint("[TheMealDB] Type de 'meals' → ${data['meals']?.runtimeType}");
-
-      if (data['meals'] == null) {
-        debugPrint("[TheMealDB] ⚠️ 'meals' est NULL (comportement courant de TheMealDB)");
-        continue;
-      }
-
-      final List<dynamic>? meals = data['meals'] as List<dynamic>?;
-
-      if (meals == null || meals.isEmpty) {
-        debugPrint("[TheMealDB] ⚠️ Liste de repas vide pour $category");
-        continue;
-      }
-
-      debugPrint("[TheMealDB] ✅ ${meals.length} repas trouvés !");
-
-      // Sélection aléatoire
-      final randomMeal = meals[Random().nextInt(meals.length)];
-      final String mealId = randomMeal['idMeal'].toString();
-      final String mealName = randomMeal['strMeal'] ?? 'Sans nom';
-
-      debugPrint("[TheMealDB] 🎲 Repas sélectionné → $mealName (ID: $mealId)");
-
-      // Récupération des détails complets
-      final Uri detailUrl = Uri.https(
-        'www.themealdb.com',
-        '/api/json/v1/1/lookup.php',
-        {'i': mealId},
-      );
-
-      final detailResp = await http.get(detailUrl).timeout(const Duration(seconds: 10));
-
-      if (detailResp.statusCode == 200) {
-        final detailData = json.decode(detailResp.body);
-        if (detailData['meals'] != null && (detailData['meals'] as List).isNotEmpty) {
-          tempSuggestions.add(detailData['meals'][0]);
-          debugPrint("[TheMealDB] ✅ Détails ajoutés avec succès");
-        } else {
-          debugPrint("[TheMealDB] ⚠️ Détails vides pour cet ID");
+        if (response.statusCode != 200) {
+          debugPrint("[TheMealDB] ❌ Erreur HTTP ${response.statusCode}");
+          continue;
         }
-      } else {
-        debugPrint("[TheMealDB] ❌ Erreur lookup.php : ${detailResp.statusCode}");
+
+        final data = json.decode(response.body);
+
+        debugPrint(
+          "[TheMealDB] Clé 'meals' présente ? ${data.containsKey('meals')}",
+        );
+        debugPrint(
+          "[TheMealDB] Type de 'meals' → ${data['meals']?.runtimeType}",
+        );
+
+        if (data['meals'] == null) {
+          debugPrint(
+            "[TheMealDB] ⚠️ 'meals' est NULL (comportement courant de TheMealDB)",
+          );
+          continue;
+        }
+
+        final List<dynamic>? meals = data['meals'] as List<dynamic>?;
+
+        if (meals == null || meals.isEmpty) {
+          debugPrint("[TheMealDB] ⚠️ Liste de repas vide pour $category");
+          continue;
+        }
+
+        debugPrint("[TheMealDB] ✅ ${meals.length} repas trouvés !");
+
+        // Sélection aléatoire
+        final randomMeal = meals[Random().nextInt(meals.length)];
+        final String mealId = randomMeal['idMeal'].toString();
+        final String mealName = randomMeal['strMeal'] ?? 'Sans nom';
+
+        debugPrint(
+          "[TheMealDB] 🎲 Repas sélectionné → $mealName (ID: $mealId)",
+        );
+
+        // Récupération des détails complets
+        final Uri detailUrl = Uri.https(
+          'www.themealdb.com',
+          '/api/json/v1/1/lookup.php',
+          {'i': mealId},
+        );
+
+        final detailResp = await http
+            .get(detailUrl)
+            .timeout(const Duration(seconds: 10));
+
+        if (detailResp.statusCode == 200) {
+          final detailData = json.decode(detailResp.body);
+          if (detailData['meals'] != null &&
+              (detailData['meals'] as List).isNotEmpty) {
+            tempSuggestions.add(detailData['meals'][0]);
+            debugPrint("[TheMealDB] ✅ Détails ajoutés avec succès");
+          } else {
+            debugPrint("[TheMealDB] ⚠️ Détails vides pour cet ID");
+          }
+        } else {
+          debugPrint(
+            "[TheMealDB] ❌ Erreur lookup.php : ${detailResp.statusCode}",
+          );
+        }
       }
+
+      debugPrint(
+        "\n[TheMealDB] 🎯 FIN → ${tempSuggestions.length} suggestions récupérées",
+      );
+
+      if (mounted) {
+        setState(() {
+          _dailySuggestions = tempSuggestions;
+          _isLoadingApi = false;
+        });
+      }
+
+      if (tempSuggestions.isEmpty) {
+        debugPrint(
+          "[TheMealDB] ❌ Aucune suggestion n'a pu être chargée aujourd'hui",
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint("[TheMealDB] 🔥 EXCEPTION : $e");
+      debugPrint(stackTrace.toString());
+      if (mounted) setState(() => _isLoadingApi = false);
     }
 
-    debugPrint("\n[TheMealDB] 🎯 FIN → ${tempSuggestions.length} suggestions récupérées");
-
-    if (mounted) {
-      setState(() {
-        _dailySuggestions = tempSuggestions;
-        _isLoadingApi = false;
-      });
-    }
-
-    if (tempSuggestions.isEmpty) {
-      debugPrint("[TheMealDB] ❌ Aucune suggestion n'a pu être chargée aujourd'hui");
-    }
-
-  } catch (e, stackTrace) {
-    debugPrint("[TheMealDB] 🔥 EXCEPTION : $e");
-    debugPrint(stackTrace.toString());
-    if (mounted) setState(() => _isLoadingApi = false);
+    debugPrint("==================================================\n");
   }
-
-  debugPrint("==================================================\n");
-}
 
   Future<void> _searchApiRecipes(String query) async {
     if (query.isEmpty) {
@@ -357,7 +352,9 @@ Future<void> _fetchDailySuggestions() async {
 
     try {
       final response = await http.get(
-        Uri.parse('https://www.themealdb.com/api/json/v1/1/search.php?s=${Uri.encodeQueryComponent(query)}'),
+        Uri.parse(
+          'https://www.themealdb.com/api/json/v1/1/search.php?s=${Uri.encodeQueryComponent(query)}',
+        ),
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -467,153 +464,159 @@ Future<void> _fetchDailySuggestions() async {
     );
   }
 
- Future<void> _generateFreeMealDBMenu() async {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (ctx) => const AlertDialog(
-      content: Row(
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(width: 20),
-          Expanded(
-            child: Text(
-              "Récupération des recettes et calcul des calories USDA...",
+  Future<void> _generateFreeMealDBMenu() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (ctx) => const AlertDialog(
+            content: Row(
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(width: 20),
+                Expanded(
+                  child: Text(
+                    "Récupération des recettes et calcul des calories USDA...",
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
-    ),
-  );
+    );
 
-  try {
-    final List<String> categories = ['Starter', 'Beef', 'Dessert'];
-    final List<Map<String, dynamic>> rawMeals = [];
+    try {
+      final List<String> categories = ['Starter', 'Beef', 'Dessert'];
+      final List<Map<String, dynamic>> rawMeals = [];
 
-    // 1. Récupération des 3 repas depuis TheMealDB
-    for (final String category in categories) {
-      debugPrint("[TheMealDB] Génération menu → Catégorie : $category");
+      // 1. Récupération des 3 repas depuis TheMealDB
+      for (final String category in categories) {
+        debugPrint("[TheMealDB] Génération menu → Catégorie : $category");
 
-      final Uri filterUrl = Uri.https(
-        'www.themealdb.com',
-        '/api/json/v1/1/filter.php',
-        {'c': category},
-      );
+        final Uri filterUrl = Uri.https(
+          'www.themealdb.com',
+          '/api/json/v1/1/filter.php',
+          {'c': category},
+        );
 
-      final r1 = await http.get(filterUrl).timeout(const Duration(seconds: 10));
+        final r1 = await http
+            .get(filterUrl)
+            .timeout(const Duration(seconds: 10));
 
-      if (r1.statusCode != 200) continue;
+        if (r1.statusCode != 200) continue;
 
-      final d1 = json.decode(r1.body);
-      if (d1['meals'] == null || (d1['meals'] as List).isEmpty) continue;
+        final d1 = json.decode(r1.body);
+        if (d1['meals'] == null || (d1['meals'] as List).isEmpty) continue;
 
-      final mList = d1['meals'] as List;
-      final randomMeal = mList[Random().nextInt(mList.length)];
+        final mList = d1['meals'] as List;
+        final randomMeal = mList[Random().nextInt(mList.length)];
 
-      final Uri lookupUrl = Uri.https(
-        'www.themealdb.com',
-        '/api/json/v1/1/lookup.php',
-        {'i': randomMeal['idMeal']},
-      );
+        final Uri lookupUrl = Uri.https(
+          'www.themealdb.com',
+          '/api/json/v1/1/lookup.php',
+          {'i': randomMeal['idMeal']},
+        );
 
-      final r2 = await http.get(lookupUrl).timeout(const Duration(seconds: 10));
+        final r2 = await http
+            .get(lookupUrl)
+            .timeout(const Duration(seconds: 10));
 
-      if (r2.statusCode == 200) {
-        final d2 = json.decode(r2.body);
-        if (d2['meals'] != null && (d2['meals'] as List).isNotEmpty) {
-          rawMeals.add(d2['meals'][0] as Map<String, dynamic>);
-        }
-      }
-    }
-
-    // 2. Traitement nutritionnel et ajout au Meal Plan
-    for (int i = 0; i < rawMeals.length; i++) {
-      final meal = rawMeals[i];
-
-      List<String> ingredientsList = [];
-      double totalCalories = 0;
-      double totalProteins = 0;
-      double totalCarbs = 0;
-      double totalFats = 0;
-
-      for (int j = 1; j <= 20; j++) {
-        final String? measure = meal['strMeasure$j'];
-        final String? ingredient = meal['strIngredient$j'];
-
-        if (ingredient != null && ingredient.trim().isNotEmpty) {
-          final cleanMeasure = (measure ?? '').trim();
-          final cleanIngredient = ingredient.trim();
-
-          final ingredientText = cleanMeasure.isEmpty
-              ? cleanIngredient
-              : '$cleanMeasure $cleanIngredient';
-
-          ingredientsList.add(ingredientText);
-
-          // Calcul des macros via USDA
-          final macros = await SL.usdaNlp.getMacrosFromUSDA(
-            cleanIngredient,
-            cleanMeasure,
-          );
-
-          totalCalories += macros['calories'] ?? 0;
-          totalProteins += macros['proteins'] ?? 0;
-          totalCarbs += macros['carbs'] ?? 0;
-          totalFats += macros['fats'] ?? 0;
+        if (r2.statusCode == 200) {
+          final d2 = json.decode(r2.body);
+          if (d2['meals'] != null && (d2['meals'] as List).isNotEmpty) {
+            rawMeals.add(d2['meals'][0] as Map<String, dynamic>);
+          }
         }
       }
 
-      // Assignation intelligente du type de repas
-      final MealType mealType = switch (i) {
-        0 => MealType.lunch,    // Starter
-        1 => MealType.dinner,   // Beef (plat principal)
-        _ => MealType.snack,    // Dessert
-      };
+      // 2. Traitement nutritionnel et ajout au Meal Plan
+      for (int i = 0; i < rawMeals.length; i++) {
+        final meal = rawMeals[i];
 
-      widget.addMealPlanEntry(
-        MealPlanEntry(
-          date: _selectedDay ?? DateTime.now(),
-          mealType: mealType,
-          mealName: meal['strMeal'] ?? "Repas TheMealDB",
-          description: meal['strCategory'] ?? "TheMealDB",
-          recipeInstructions: meal['strInstructions'],
-          prepTime: 25,
-          utensils: const ["Ustensiles standards"],
-          ingredients: ingredientsList,
-          imageUrl: meal['strMealThumb'],
-          estimatedCalories: totalCalories.toInt(),
-          estimatedProteins: totalProteins,
-          estimatedCarbs: totalCarbs,
-          estimatedFats: totalFats,
-          source: 'TheMealDB',
-        ),
-      );
-    }
+        List<String> ingredientsList = [];
+        double totalCalories = 0;
+        double totalProteins = 0;
+        double totalCarbs = 0;
+        double totalFats = 0;
 
-    if (mounted) {
-      Navigator.pop(context); // Ferme le dialog de chargement
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Menu TheMealDB généré avec succès !"),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  } catch (e, stackTrace) {
-    debugPrint("[GenerateMenu] ERREUR : $e");
-    debugPrint(stackTrace.toString());
+        for (int j = 1; j <= 20; j++) {
+          final String? measure = meal['strMeasure$j'];
+          final String? ingredient = meal['strIngredient$j'];
 
-    if (mounted) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erreur lors de la génération du menu : $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+          if (ingredient != null && ingredient.trim().isNotEmpty) {
+            final cleanMeasure = (measure ?? '').trim();
+            final cleanIngredient = ingredient.trim();
+
+            final ingredientText =
+                cleanMeasure.isEmpty
+                    ? cleanIngredient
+                    : '$cleanMeasure $cleanIngredient';
+
+            ingredientsList.add(ingredientText);
+
+            // Calcul des macros via USDA
+            final macros = await SL.usdaNlp.getMacrosFromUSDA(
+              cleanIngredient,
+              cleanMeasure,
+            );
+
+            totalCalories += macros['calories'] ?? 0;
+            totalProteins += macros['proteins'] ?? 0;
+            totalCarbs += macros['carbs'] ?? 0;
+            totalFats += macros['fats'] ?? 0;
+          }
+        }
+
+        // Assignation intelligente du type de repas
+        final MealType mealType = switch (i) {
+          0 => MealType.lunch, // Starter
+          1 => MealType.dinner, // Beef (plat principal)
+          _ => MealType.snack, // Dessert
+        };
+
+        widget.addMealPlanEntry(
+          MealPlanEntry(
+            date: _selectedDay ?? DateTime.now(),
+            mealType: mealType,
+            mealName: meal['strMeal'] ?? "Repas TheMealDB",
+            description: meal['strCategory'] ?? "TheMealDB",
+            recipeInstructions: meal['strInstructions'],
+            prepTime: 25,
+            utensils: const ["Ustensiles standards"],
+            ingredients: ingredientsList,
+            imageUrl: meal['strMealThumb'],
+            estimatedCalories: totalCalories.toInt(),
+            estimatedProteins: totalProteins,
+            estimatedCarbs: totalCarbs,
+            estimatedFats: totalFats,
+            source: 'TheMealDB',
+          ),
+        );
+      }
+
+      if (mounted) {
+        Navigator.pop(context); // Ferme le dialog de chargement
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Menu TheMealDB généré avec succès !"),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint("[GenerateMenu] ERREUR : $e");
+      debugPrint(stackTrace.toString());
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Erreur lors de la génération du menu : $e"),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
-}
 
   Future<void> _generateMenuWithIA({bool isWeekly = false}) async {
     if (_isProcessing) return;
@@ -625,18 +628,27 @@ Future<void> _fetchDailySuggestions() async {
       }
 
       // 1. CALCUL DU RESTE MACRONUTRITIONNEL DE LA JOURNÉE
-      final dailyEntries = widget.mealPlans
-          .where((m) => isSameDay(m.date, _selectedDay ?? DateTime.now()))
-          .toList();
-      
-      double consumedCarbs = dailyEntries.fold(0.0, (s, e) => s + e.estimatedCarbs);
-      double consumedPro = dailyEntries.fold(0.0, (s, e) => s + e.estimatedProteins);
-      
+      final dailyEntries =
+          widget.mealPlans
+              .where((m) => isSameDay(m.date, _selectedDay ?? DateTime.now()))
+              .toList();
+
+      double consumedCarbs = dailyEntries.fold(
+        0.0,
+        (s, e) => s + e.estimatedCarbs,
+      );
+      double consumedPro = dailyEntries.fold(
+        0.0,
+        (s, e) => s + e.estimatedProteins,
+      );
+
       String contextualConstraint = "";
       if (consumedCarbs > (widget.currentGoals.targetCarbs * 0.75)) {
-        contextualConstraint = "L'utilisateur a déjà consommé l'essentiel de ses glucides (${consumedCarbs.toInt()}g). Propose impérativement des repas pauvres en glucides (Low-Carb), riches en protéines et légumes verts.";
+        contextualConstraint =
+            "L'utilisateur a déjà consommé l'essentiel de ses glucides (${consumedCarbs.toInt()}g). Propose impérativement des repas pauvres en glucides (Low-Carb), riches en protéines et légumes verts.";
       } else if (consumedPro < (widget.currentGoals.targetProteins * 0.4)) {
-        contextualConstraint = "L'utilisateur manque de protéines aujourd'hui. Privilégie une source de protéine dense (poulet, poisson, tofu, œufs).";
+        contextualConstraint =
+            "L'utilisateur manque de protéines aujourd'hui. Privilégie une source de protéine dense (poulet, poisson, tofu, œufs).";
       }
 
       showDialog(
@@ -709,15 +721,25 @@ Future<void> _fetchDailySuggestions() async {
           double totalCal = 0, totalPro = 0, totalCarb = 0, totalFat = 0;
 
           for (var ing in rawIngs) {
-            String name = ing['name'] ?? '';
-            String measure = ing['measure'] ?? '';
-            combinedIngredients.add("${measure.trim()} ${name.trim()}".trim());
+            String name = '';
+            String measure = '';
 
+            // ✅ CORRECTION : Gestion robuste des types (Map ou String)
+            if (ing is Map) {
+              name = ing['name']?.toString() ?? '';
+              measure = ing['measure']?.toString() ?? '';
+            } else if (ing is String) {
+              name = ing;
+              measure = '1 portion'; // Valeur par défaut si c'est juste une chaîne
+            }
+
+            combinedIngredients.add("${measure.trim()} ${name.trim()}".trim());
+            
             final macros = await SL.usdaNlp.getMacrosFromUSDA(name, measure);
-            totalCal += macros['calories']!;
-            totalPro += macros['proteins']!;
-            totalCarb += macros['carbs']!;
-            totalFat += macros['fats']!;
+            totalCal += macros['calories'] ?? 0;
+            totalPro += macros['proteins'] ?? 0;
+            totalCarb += macros['carbs'] ?? 0;
+            totalFat += macros['fats'] ?? 0;
           }
 
           String? scrapedImageUrl = await _fetchImageUrl(m['mealName']);
@@ -732,7 +754,8 @@ Future<void> _fetchDailySuggestions() async {
               mealName: m['mealName'],
               description: m['description'],
               recipeInstructions: m['recipe_instructions'],
-              prepTime: m['prepTime'] != null ? safeParseInt(m['prepTime']) : null,
+              prepTime:
+                  m['prepTime'] != null ? safeParseInt(m['prepTime']) : null,
               utensils:
                   (m['utensils'] as List?)?.map((e) => e.toString()).toList(),
               ingredients: combinedIngredients,
@@ -1112,10 +1135,20 @@ Future<void> _fetchDailySuggestions() async {
                     children: [
                       Expanded(
                         child: ElevatedButton.icon(
-                          onPressed: _isProcessing ? null : () => _generateMenuWithIA(isWeekly: false),
-                          icon: _isProcessing
-                              ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.restaurant),
+                          onPressed:
+                              _isProcessing
+                                  ? null
+                                  : () => _generateMenuWithIA(isWeekly: false),
+                          icon:
+                              _isProcessing
+                                  ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                  : const Icon(Icons.restaurant),
                           label: Text(
                             widget.isPremiumUser
                                 ? "Menu du Jour"
@@ -1127,12 +1160,20 @@ Future<void> _fetchDailySuggestions() async {
                         const SizedBox(width: 8),
                         Expanded(
                           child: ElevatedButton.icon(
-                            onPressed: _isProcessing
-                                ? null
-                                : () => _generateMenuWithIA(isWeekly: true),
-                            icon: _isProcessing
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                                : const Icon(Icons.date_range),
+                            onPressed:
+                                _isProcessing
+                                    ? null
+                                    : () => _generateMenuWithIA(isWeekly: true),
+                            icon:
+                                _isProcessing
+                                    ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                    : const Icon(Icons.date_range),
                             label: const Text("Semaine"),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.teal.shade600,
@@ -1255,7 +1296,10 @@ Future<void> _fetchDailySuggestions() async {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: meal.source == 'IA' ? Colors.purple.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                color:
+                    meal.source == 'IA'
+                        ? Colors.purple.withOpacity(0.2)
+                        : Colors.green.withOpacity(0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(

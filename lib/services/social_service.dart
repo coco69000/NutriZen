@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'notification_service.dart';
 import 'long_term_memory_service.dart';
@@ -33,14 +34,30 @@ class SocialFriend {
       targetSteps: (data['targetSteps'] ?? 10000).toDouble(),
       caloriesBurned: (data['caloriesBurned'] ?? 0).toDouble(),
       currentWeight: (data['currentWeight'] ?? 70.0).toDouble(),
-      lastActive: data['lastActive'] != null
-          ? (data['lastActive'] as Timestamp).toDate()
-          : DateTime.now(),
+      lastActive:
+          data['lastActive'] != null
+              ? (data['lastActive'] as Timestamp).toDate()
+              : DateTime.now(),
     );
   }
 }
 
 enum ChallengeType { steps, calories, water, fasting }
+
+extension ChallengeTypeExt on ChallengeType {
+  String get typeLabel {
+    switch (this) {
+      case ChallengeType.steps:
+        return 'Pas 🚶';
+      case ChallengeType.calories:
+        return 'Calories 🔥';
+      case ChallengeType.water:
+        return 'Hydratation 💧';
+      case ChallengeType.fasting:
+        return 'Jeûne ⏱️';
+    }
+  }
+}
 
 enum ChallengeStatus { pending, active, finished, declined }
 
@@ -159,8 +176,8 @@ class SocialService {
     required this.userId,
     required NotificationService notificationService,
     required LongTermMemoryService memoryService,
-  })  : _notificationService = notificationService,
-        _memoryService = memoryService;
+  }) : _notificationService = notificationService,
+       _memoryService = memoryService;
 
   /// Ajoute un ami par son adresse e-mail ou UID (CORRIGÉ)
   Future<bool> addFriend(String emailOrUid) async {
@@ -171,11 +188,12 @@ class SocialService {
       String friendEmail = emailOrUid.trim();
 
       // 1. Tentative de recherche par Email
-      var query = await _db
-          .collection('users')
-          .where('email', isEqualTo: emailOrUid.trim())
-          .limit(1)
-          .get();
+      var query =
+          await _db
+              .collection('users')
+              .where('email', isEqualTo: emailOrUid.trim())
+              .limit(1)
+              .get();
 
       if (query.docs.isNotEmpty) {
         targetUid = query.docs.first.id;
@@ -207,10 +225,10 @@ class SocialService {
           .collection('friends')
           .doc(targetUid)
           .set({
-        'addedAt': FieldValue.serverTimestamp(),
-        'displayName': friendName,
-        'email': friendEmail,
-      }, SetOptions(merge: true));
+            'addedAt': FieldValue.serverTimestamp(),
+            'displayName': friendName,
+            'email': friendEmail,
+          }, SetOptions(merge: true));
 
       return true;
     } catch (e) {
@@ -223,11 +241,8 @@ class SocialService {
   Future<List<SocialFriend>> getFriends() async {
     if (userId.isEmpty) return [];
     try {
-      final snapshot = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('friends')
-          .get();
+      final snapshot =
+          await _db.collection('users').doc(userId).collection('friends').get();
 
       if (snapshot.docs.isEmpty) return [];
 
@@ -237,11 +252,14 @@ class SocialService {
       // Firestore limite 'whereIn' à 30 éléments. On découpe par lots de 30.
       for (var i = 0; i < friendIds.length; i += 30) {
         final chunk = friendIds.sublist(
-            i, i + 30 > friendIds.length ? friendIds.length : i + 30);
-        final usersQuery = await _db
-            .collection('users')
-            .where(FieldPath.documentId, whereIn: chunk)
-            .get();
+          i,
+          i + 30 > friendIds.length ? friendIds.length : i + 30,
+        );
+        final usersQuery =
+            await _db
+                .collection('users')
+                .where(FieldPath.documentId, whereIn: chunk)
+                .get();
 
         for (var doc in usersQuery.docs) {
           friends.add(SocialFriend.fromFirestore(doc.data(), doc.id));
@@ -268,7 +286,9 @@ class SocialService {
     try {
       final userDoc = await _db.collection('users').doc(userId).get();
       final creatorName =
-          userDoc.data()?['displayName'] ?? userDoc.data()?['firstName'] ?? 'Moi';
+          userDoc.data()?['displayName'] ??
+          userDoc.data()?['firstName'] ??
+          'Moi';
 
       final docRef = await _db.collection('challenges').add({
         'creatorUid': userId,
@@ -291,9 +311,11 @@ class SocialService {
       await _notificationService.showInstantNotification(
         id: notificationId,
         title: "Nouveau Défi Lancé ! 🔥",
-        body: "Vous avez défié $opponentName sur le thème ${type.name} !",
+        body: "Vous avez défié $opponentName sur le thème ${type.typeLabel} !",
       );
 
+      // ✅ CORRECTION : Suppression de l'appel httpsCallable redondant et dangereux.
+      // Le trigger Firestore 'onChallengeCreated' enverra automatiquement la notification push à l'adversaire.
       return docRef.id;
     } catch (e) {
       debugPrint("Erreur création duel: $e");
@@ -304,14 +326,21 @@ class SocialService {
   /// ACCEPTER UN DUEL
   Future<void> acceptDuel(String challengeId) async {
     try {
+      final challengeDoc =
+          await _db.collection('challenges').doc(challengeId).get();
+      final data = challengeDoc.data();
+
       await _db.collection('challenges').doc(challengeId).update({
         'status': ChallengeStatus.active.name,
       });
+
       await _notificationService.showInstantNotification(
         id: challengeId.hashCode.abs() % 100000,
         title: "Duel Accepté ! ⚔️",
         body: "Le duel est désormais actif. Que le meilleur gagne !",
       );
+
+      // ✅ CORRECTION : Le trigger Firestore 'onChallengeStatusUpdated' notifie automatiquement le créateur.
     } catch (e) {
       debugPrint("Erreur acceptation duel: $e");
     }
@@ -330,19 +359,24 @@ class SocialService {
 
   /// CALCULER LE SCORE D'UN UTILISATEUR POUR UN DUEL
   Future<double> calculateScoreForUser(
-      String uid, ChallengeType type, DateTime start, DateTime end) async {
+    String uid,
+    ChallengeType type,
+    DateTime start,
+    DateTime end,
+  ) async {
     try {
       final startTimestamp = Timestamp.fromDate(start);
       final endTimestamp = Timestamp.fromDate(end);
 
       if (type == ChallengeType.steps || type == ChallengeType.calories) {
-        final snap = await _db
-            .collection('users')
-            .doc(uid)
-            .collection('activities')
-            .where('timestamp', isGreaterThanOrEqualTo: startTimestamp)
-            .where('timestamp', isLessThanOrEqualTo: endTimestamp)
-            .get();
+        final snap =
+            await _db
+                .collection('users')
+                .doc(uid)
+                .collection('activities')
+                .where('timestamp', isGreaterThanOrEqualTo: startTimestamp)
+                .where('timestamp', isLessThanOrEqualTo: endTimestamp)
+                .get();
 
         double total = 0.0;
         for (var doc in snap.docs) {
@@ -362,24 +396,28 @@ class SocialService {
         }
         return total;
       } else if (type == ChallengeType.water) {
-        final snap = await _db
-            .collection('users')
-            .doc(uid)
-            .collection('waterEntries')
-            .where('timestamp', isGreaterThanOrEqualTo: startTimestamp)
-            .where('timestamp', isLessThanOrEqualTo: endTimestamp)
-            .get();
+        final snap =
+            await _db
+                .collection('users')
+                .doc(uid)
+                .collection('waterEntries')
+                .where('timestamp', isGreaterThanOrEqualTo: startTimestamp)
+                .where('timestamp', isLessThanOrEqualTo: endTimestamp)
+                .get();
 
         return snap.docs.fold<double>(
-            0.0, (acc, doc) => acc + (doc.data()['amountMl'] ?? 0.0).toDouble());
+          0.0,
+          (acc, doc) => acc + (doc.data()['amountMl'] ?? 0.0).toDouble(),
+        );
       } else if (type == ChallengeType.fasting) {
-        final snap = await _db
-            .collection('users')
-            .doc(uid)
-            .collection('fastingSessions')
-            .where('startTime', isGreaterThanOrEqualTo: startTimestamp)
-            .where('startTime', isLessThanOrEqualTo: endTimestamp)
-            .get();
+        final snap =
+            await _db
+                .collection('users')
+                .doc(uid)
+                .collection('fastingSessions')
+                .where('startTime', isGreaterThanOrEqualTo: startTimestamp)
+                .where('startTime', isLessThanOrEqualTo: endTimestamp)
+                .get();
 
         return snap.docs.fold<double>(0.0, (acc, doc) {
           final data = doc.data();
@@ -398,15 +436,17 @@ class SocialService {
   Future<List<SocialChallenge>> getMyDuels() async {
     if (userId.isEmpty) return [];
     try {
-      final snapCreator = await _db
-          .collection('challenges')
-          .where('creatorUid', isEqualTo: userId)
-          .get();
+      final snapCreator =
+          await _db
+              .collection('challenges')
+              .where('creatorUid', isEqualTo: userId)
+              .get();
 
-      final snapOpponent = await _db
-          .collection('challenges')
-          .where('opponentUid', isEqualTo: userId)
-          .get();
+      final snapOpponent =
+          await _db
+              .collection('challenges')
+              .where('opponentUid', isEqualTo: userId)
+              .get();
 
       final Map<String, DocumentSnapshot<Map<String, dynamic>>> allDocs = {};
       for (var doc in snapCreator.docs) {
@@ -422,9 +462,13 @@ class SocialService {
       for (var entry in allDocs.entries) {
         final doc = entry.value;
         final challenge = SocialChallenge.fromFirestore(doc.data()!, doc.id);
+        if (challenge.status != ChallengeStatus.declined) {
+          challenges.add(challenge);
+        }
+      }
 
-        if (challenge.status == ChallengeStatus.declined) continue;
-
+      // ✅ CORRECTION : Exécution parallèle des calculs de score au lieu d'await séquentiel
+      await Future.wait(challenges.map((challenge) async {
         if (challenge.status == ChallengeStatus.active ||
             challenge.status == ChallengeStatus.finished) {
           challenge.creatorScore = await calculateScoreForUser(
@@ -443,17 +487,11 @@ class SocialService {
           if (now.isAfter(challenge.endDate) &&
               challenge.status != ChallengeStatus.finished) {
             challenge.status = ChallengeStatus.finished;
-            final winnerUid = challenge.creatorScore >= challenge.opponentScore
-                ? challenge.creatorUid
-                : challenge.opponentUid;
+            final winnerUid =
+                challenge.creatorScore >= challenge.opponentScore
+                    ? challenge.creatorUid
+                    : challenge.opponentUid;
             challenge.winnerUid = winnerUid;
-
-            final winnerName = winnerUid == challenge.creatorUid
-                ? challenge.creatorName
-                : challenge.opponentName;
-            final loserName = winnerUid == challenge.creatorUid
-                ? challenge.opponentName
-                : challenge.creatorName;
 
             await _db.collection('challenges').doc(challenge.id).update({
               'status': ChallengeStatus.finished.name,
@@ -462,14 +500,21 @@ class SocialService {
               'winnerUid': winnerUid,
             });
 
-            final String description =
-                "a vu $winnerName l'emporter sur $loserName (${challenge.creatorScore.toInt()} vs ${challenge.opponentScore.toInt()}) sur le thème ${challenge.typeLabel}. Gage : ${challenge.wager}";
-            await publishSuccessActivity("🏆 Victoire en Duel", description);
+            final winnerName =
+                winnerUid == challenge.creatorUid
+                    ? challenge.creatorName
+                    : challenge.opponentName;
+            final loserName =
+                winnerUid == challenge.creatorUid
+                    ? challenge.opponentName
+                    : challenge.creatorName;
+            await publishSuccessActivity(
+              "🏆 Victoire en Duel",
+              "a vu $winnerName l'emporter sur $loserName (${challenge.creatorScore.toInt()} vs ${challenge.opponentScore.toInt()})",
+            );
           }
         }
-
-        challenges.add(challenge);
-      }
+      }));
 
       challenges.sort((a, b) => b.startDate.compareTo(a.startDate));
       return challenges;
@@ -482,22 +527,20 @@ class SocialService {
   /// Récupère le fil d'actualité des amis (VRAIE REQUÊTE FIRESTORE)
   Future<List<FriendActivityFeed>> getFriendActivityFeed() async {
     try {
-      final friendsSnap = await _db
-          .collection('users')
-          .doc(userId)
-          .collection('friends')
-          .get();
+      final friendsSnap =
+          await _db.collection('users').doc(userId).collection('friends').get();
       final friendIds = friendsSnap.docs.map((d) => d.id).toList();
 
       if (friendIds.isEmpty) return [];
 
       // Firestore limite 'whereIn' à 30 éléments
-      final feedQuery = await _db
-          .collection('social_feed')
-          .where('userId', whereIn: friendIds.take(30).toList())
-          .orderBy('timestamp', descending: true)
-          .limit(20)
-          .get();
+      final feedQuery =
+          await _db
+              .collection('social_feed')
+              .where('userId', whereIn: friendIds.take(30).toList())
+              .orderBy('timestamp', descending: true)
+              .limit(20)
+              .get();
 
       return feedQuery.docs.map((doc) {
         final data = doc.data();
@@ -520,7 +563,9 @@ class SocialService {
 
   /// Publie un succès dans le fil d'actualités
   Future<void> publishSuccessActivity(
-      String badgeTitle, String description) async {
+    String badgeTitle,
+    String description,
+  ) async {
     if (userId.isEmpty) return;
     try {
       // Récupérer le nom de l'utilisateur pour l'afficher dans le feed
@@ -556,8 +601,7 @@ class SocialService {
         );
         if (!alreadyNotified) {
           // ✅ Hash complet pour éviter les collisions
-          final notificationId =
-              'friend_${friend.uid}'.hashCode.abs() % 100000;
+          final notificationId = 'friend_${friend.uid}'.hashCode.abs() % 100000;
           await _notificationService.showInstantNotification(
             id: notificationId,
             title: "Soutien Proactif 🤝",
@@ -586,12 +630,14 @@ class SocialService {
     }
   }
 
-  /// Envoie de la force (CORRECTION DE L'ID DE NOTIFICATION)
+  /// Envoie de la force (Local + FCM Push au destinataire)
   Future<void> sendEncouragement(String friendUid, String friendName) async {
     // Hash dynamique pour éviter que les notifications ne s'écrasent entre elles
     final notificationId =
-        'enc_${friendUid}_${DateTime.now().millisecondsSinceEpoch}'.hashCode.abs() %
-            100000;
+        'enc_${friendUid}_${DateTime.now().millisecondsSinceEpoch}'.hashCode
+            .abs() %
+        100000;
+    // Notification locale de confirmation pour l'émetteur
     await _notificationService.showInstantNotification(
       id: notificationId,
       title: "Encouragement envoyé ! 💪",

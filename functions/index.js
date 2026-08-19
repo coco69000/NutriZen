@@ -16,6 +16,15 @@ exports.callAI = functions.https.onCall(async (data, context) => {
   const uid = context.auth.uid;
   const prompt = data.prompt;
   const imageBase64 = data.imageBase64;
+
+  // ✅ CORRECTION : Limites strictes pour éviter les crashs OOM et les factures explosives
+  if (imageBase64 && imageBase64.length > 3 * 1024 * 1024) { // ~3Mo en base64
+    throw new functions.https.HttpsError('invalid-argument', 'Image trop volumineuse (max 3Mo).');
+  }
+  if (!prompt || typeof prompt !== 'string' || prompt.length > 4000) {
+    throw new functions.https.HttpsError('invalid-argument', 'Le paramètre prompt est obligatoire et limité à 4000 caractères.');
+  }
+
   const apiType = data.apiType || (imageBase64 ? 'photo_analysis_ia' : 'deepseek_api_calls');
 
   // 🧠 ROUTAGE INTELLIGENT
@@ -34,13 +43,10 @@ exports.callAI = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError('invalid-argument', 'Modèle IA non autorisé.');
   }
 
-  if (!prompt || typeof prompt !== 'string') {
-    throw new functions.https.HttpsError('invalid-argument', 'Le paramètre prompt est obligatoire.');
-  }
-
   // --- QUOTA & TRACKING (Correction Quotas Dynamiques & Firestore Premium Status) ---
   const db = getDb();
-  const today = data.clientDate || new Date().toISOString().split('T')[0];
+  // ✅ CORRECTION : Calcul strict de la date côté serveur, ignorant toute donnée cliente.
+  const today = new Date().toISOString().split('T')[0];
   const usageRef = db.collection('users').doc(uid).collection('usageTracking').doc(today);
   const subscriptionRef = db.collection('users').doc(uid).collection('subscription').doc('status');
 
@@ -297,9 +303,8 @@ exports.updateUserStreak = functions.https.onCall(async (data, context) => {
     const userDoc = await transaction.get(userRef);
     const userData = userDoc.exists ? userDoc.data() : {};
 
-    // Date locale au format YYYY-MM-DD
-    const now = new Date();
-    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    // ✅ CORRECTION : Utiliser la date cliente (envoyée par Flutter) ou l'UTC serveur
+    const todayStr = data.clientDate || new Date().toISOString().split('T')[0];
     const lastLoginStr = userData.lastLoginDate;
     let streak = userData.loginStreak || 0;
 
@@ -309,8 +314,9 @@ exports.updateUserStreak = functions.https.onCall(async (data, context) => {
 
     if (lastLoginStr) {
       const lastDateParts = lastLoginStr.split('-');
-      const lastDate = new Date(lastDateParts[0], lastDateParts[1] - 1, lastDateParts[2]);
-      const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      // ✅ CORRECTION : Comparaison en UTC pour une fiabilité totale
+      const lastDate = new Date(Date.UTC(lastDateParts[0], lastDateParts[1] - 1, lastDateParts[2]));
+      const todayDate = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
 
       const diffTime = Math.abs(todayDate - lastDate);
       const daysDiff = Math.round(diffTime / (1000 * 60 * 60 * 24));
@@ -381,7 +387,12 @@ exports.evaluateAndAwardBadges = functions.https.onCall(async (data, context) =>
   if (ecoScansCount >= 5) badgesToAward.push({ id: 'eco_hero_5', currentProgress: 5, isUnlocked: true });
   if (hasBurned500) badgesToAward.push({ id: 'calorie_burner_500', currentProgress: 1, isUnlocked: true });
 
-  const hasFast12h = fasts.some(f => (f.durationSeconds || 0) >= 43200 || f.isTargetReached === true);
+  // ✅ CORRECTION : Vérifier les secondes stockées dans Firestore au lieu du getter Flutter
+  const hasFast12h = fasts.some(f => {
+    const duration = f.durationSeconds || 0;
+    const target = f.targetDurationSeconds || 43200; // 12h par défaut si non défini
+    return duration >= 43200 || (target > 0 && duration >= target);
+  });
   if (hasFast12h) badgesToAward.push({ id: 'first_fast', currentProgress: 1, isUnlocked: true });
 
   // Appliquer les mises à jour uniquement si le badge n'est pas déjà débloqué
@@ -401,3 +412,122 @@ exports.evaluateAndAwardBadges = functions.https.onCall(async (data, context) =>
   await batch.commit();
   return { success: true, awarded: badgesToAward.map(b => b.id) };
 });
+
+/**
+ * 🔔 Trigger Firestore : Notifie automatiquement l'adversaire lors de la création d'un duel
+ */
+exports.onChallengeCreated = functions.firestore
+  .document('challenges/{challengeId}')
+  .onCreate(async (snap, context) => {
+    const data = snap.data();
+    if (!data) return null;
+    const opponentUid = data.opponentUid;
+    const creatorName = data.creatorName || 'Un ami';
+    const typeLabel = data.type || 'Défi';
+
+    const db = admin.firestore();
+    const userDoc = await db.collection('users').doc(opponentUid).get();
+    const fcmToken = userDoc.exists ? userDoc.data().fcmToken : null;
+
+    if (!fcmToken) return null;
+
+    const message = {
+      token: fcmToken,
+      notification: {
+        title: '⚔️ Nouveau Duel Reçu !',
+        body: `${creatorName} vous défie sur une épreuve de ${typeLabel} ! Acceptez-vous ?`,
+      },
+      data: {
+        click_action: 'FLUTTER_NOTIFICATION_CLICK',
+        challengeId: context.params.challengeId,
+        type: 'challenge_received',
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'nutrizen_social_channel'
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: 'default'
+          }
+        }
+      }
+    };
+
+    try {
+      await admin.messaging().send(message);
+      console.log(`Notification envoyée à ${opponentUid}`);
+    } catch (err) {
+      console.error('Erreur envoi notification FCM:', err);
+      if (err.code === 'messaging/invalid-registration-token' ||
+        err.code === 'messaging/registration-token-not-registered') {
+        await db.collection('users').doc(opponentUid).update({
+          fcmToken: admin.firestore.FieldValue.delete()
+        });
+        console.log(`Token FCM invalide supprimé pour ${opponentUid}`);
+      }
+    }
+    return null;
+  });
+
+/**
+ * 🔔 Trigger Firestore : Notifie le créateur lorsque l'adversaire accepte le duel
+ */
+exports.onChallengeStatusUpdated = functions.firestore
+  .document('challenges/{challengeId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+    if (!before || !after) return null;
+
+    if (before.status === 'pending' && after.status === 'active') {
+      const creatorUid = after.creatorUid;
+      const opponentName = after.opponentName || 'Votre ami';
+
+      const db = admin.firestore();
+      const userDoc = await db.collection('users').doc(creatorUid).get();
+      const fcmToken = userDoc.exists ? userDoc.data().fcmToken : null;
+
+      if (!fcmToken) return null;
+
+      const message = {
+        token: fcmToken,
+        notification: {
+          title: '🔥 Duel Accepté !',
+          body: `${opponentName} a accepté votre défi. Que le meilleur gagne !`,
+        },
+        android: {
+          priority: 'high',
+          notification: {
+            sound: 'default',
+            channelId: 'nutrizen_social_channel'
+          }
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: 'default'
+            }
+          }
+        }
+      };
+
+      try {
+        await admin.messaging().send(message);
+      } catch (err) {
+        console.error('Erreur envoi FCM acceptation:', err);
+        if (err.code === 'messaging/invalid-registration-token' ||
+          err.code === 'messaging/registration-token-not-registered') {
+          await db.collection('users').doc(creatorUid).update({
+            fcmToken: admin.firestore.FieldValue.delete()
+          });
+          console.log(`Token FCM invalide supprimé pour ${creatorUid}`);
+        }
+      }
+    }
+    return null;
+  });

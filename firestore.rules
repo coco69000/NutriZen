@@ -27,7 +27,14 @@ service cloud.firestore {
         && !('role' in request.resource.data);
 
       allow update: if isOwner(userId) 
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['isPremium', 'role', 'subscriptionStatus']))
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'isPremium', 'role', 'subscriptionStatus',
+          'rank_score', 'rank_breakdown', 'rank_streak', 'rank_badges', 
+          'rank_goalProgress', 'rank_weeklyKcal', 'rank_steps', 'rank_goalType',
+          'rank_weightDelta', 'rank_currentWeight', 'rank_waterAdherence',
+          'rank_mealsLogged', 'rank_fastingSessions', 'rank_aiAnalyses',
+          'evo_score', 'evo_weight', 'evo_activity', 'evo_nutrition'
+        ]))
         && (request.resource.data.countryCode == resource.data.countryCode || resource.data.countryCode == null)
         || request.auth.token.admin == true;
 
@@ -62,18 +69,30 @@ service cloud.firestore {
         allow delete: if isOwner(userId);
       }
 
-      // Validation des activités physiques (caloriesBurned <= 5000 kcal)
+      // Validation des activités physiques
       match /activities/{activityId} {
-        allow read: if isOwner(userId);
-        allow create: if isOwner(userId)
-                      && (!('caloriesBurned' in request.resource.data) || (request.resource.data.caloriesBurned is number && request.resource.data.caloriesBurned <= 5000));
-        allow update, delete: if isOwner(userId);
+        allow read: if request.auth != null;
+        // Empêche d'entrer des calories irréalistes (> 3000 kcal pour une seule activité)
+        allow write: if request.auth.uid == userId 
+                     && request.resource.data.caloriesBurned is number 
+                     && request.resource.data.caloriesBurned <= 3000;
+      }
+
+      match /fastingPrograms/{programId} {
+        allow read, write: if request.auth.uid == userId;
       }
 
       // Autres sous-collections utilisateur (ex: meals, goals, steps)
       match /{allSubcollections=**} {
         allow read, write: if isOwner(userId);
       }
+    }
+
+    match /challenges/{challengeId} {
+      allow read: if request.auth != null;
+      // Seul le créateur ou l'adversaire peut modifier le statut, pas les scores directement
+      allow update: if (request.auth.uid == resource.data.creatorUid || request.auth.uid == resource.data.opponentUid)
+                    && request.resource.data.keys().hasOnly(['status', 'winnerUid']); 
     }
 
     // Collection des journaux d'audit (admin_logs) : inaccessible côté client

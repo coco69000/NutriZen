@@ -184,8 +184,8 @@ class _OnboardingFlowScreenState extends State<OnboardingFlowScreen> {
           'maintainLabel': "Maintenir mes muscles", // Label personnalisé
         };
       } else {
-        // Personne en surpoids non-athlétique -> On force la perte de poids
-        _onboardingData['weightGoalType'] = 'lose';
+        // ✅ CORRECTION : On recommande fortement, mais on NE FORCE PAS la variable.
+        // L'utilisateur garde le choix via l'UI, mais le message d'alerte reste visible.
         return {
           'recommendedGoal': 'lose',
           'bmiMessage': RichText(
@@ -196,7 +196,7 @@ class _OnboardingFlowScreenState extends State<OnboardingFlowScreen> {
                     TextSpan(text: " ALERTE SANTÉ : Votre IMC est de ${bmi.toStringAsFixed(1)} ($bmiCategory).")
                   ]
               )),
-          'recommendationMessage': "Pour votre santé, maintenir ce poids n'est pas une option. Il est impératif de viser une perte de poids. Nous avons pré-sélectionné cet objectif pour vous.",
+          'recommendationMessage': "Pour votre santé, une perte de poids est fortement recommandée. Cependant, vous gardez le choix final de votre objectif.",
           'recommendationColor': Colors.red.shade100,
           'maintainLabel': "Maintenir mon poids",
         };
