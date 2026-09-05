@@ -1,4 +1,5 @@
-﻿import 'dart:convert';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 class ExerciseItem {
@@ -54,7 +55,7 @@ class ExerciseItem {
     if (images.isNotEmpty && index >= 0 && index < images.length) {
       final path = images[index];
       final encodedPath = path.split('/').map((e) => Uri.encodeComponent(e)).join('/');
-      return "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/" + encodedPath;
+      return 'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/$encodedPath';
     }
     return '';
   }
@@ -77,7 +78,7 @@ class ExerciseLibraryService {
         throw Exception('Failed to load exercises');
       }
     } catch (e) {
-      print('Error fetching exercises: $e');
+      debugPrint('Error fetching exercises: $e');
       return [];
     }
   }
@@ -93,10 +94,10 @@ class ExerciseLibraryService {
   List<ExerciseItem> search(String query) {
     if (query.isEmpty) return _cachedExercises;
     final lowerQuery = query.toLowerCase();
-    return _cachedExercises.where((e) => 
-      e.name.toLowerCase().contains(lowerQuery) || 
+    return _cachedExercises.where((e) =>
+      e.name.toLowerCase().contains(lowerQuery) ||
       e.primaryMuscles.any((m) => m.toLowerCase().contains(lowerQuery)) ||
-      e.equipment != null && e.equipment!.toLowerCase().contains(lowerQuery)
+      (e.equipment != null && e.equipment!.toLowerCase().contains(lowerQuery))
     ).toList();
   }
 }

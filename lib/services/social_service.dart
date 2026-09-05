@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/foundation.dart';
 import 'notification_service.dart';
 import 'long_term_memory_service.dart';
@@ -326,10 +325,6 @@ class SocialService {
   /// ACCEPTER UN DUEL
   Future<void> acceptDuel(String challengeId) async {
     try {
-      final challengeDoc =
-          await _db.collection('challenges').doc(challengeId).get();
-      final data = challengeDoc.data();
-
       await _db.collection('challenges').doc(challengeId).update({
         'status': ChallengeStatus.active.name,
       });
@@ -383,8 +378,8 @@ class SocialService {
           final data = doc.data();
           if (type == ChallengeType.steps) {
             if (data['activityType'] == 'Marche_Auto') {
-              final String desc = data['description'] ?? '';
-              final RegExp reg = RegExp(r'(\d+)\s*pas');
+              final String desc = (data['description'] ?? '').replaceAll(RegExp(r'[\s,\.]'), '');
+              final RegExp reg = RegExp(r'(\d+)pas', caseSensitive: false);
               final match = reg.firstMatch(desc);
               if (match != null) {
                 total += double.tryParse(match.group(1) ?? '0') ?? 0.0;
@@ -405,10 +400,14 @@ class SocialService {
                 .where('timestamp', isLessThanOrEqualTo: endTimestamp)
                 .get();
 
-        return snap.docs.fold<double>(
-          0.0,
-          (acc, doc) => acc + (doc.data()['amountMl'] ?? 0.0).toDouble(),
-        );
+        return snap.docs.fold<double>(0.0, (acc, doc) {
+          final data = doc.data();
+          final amountL = (data['amount'] as num?)?.toDouble();
+          if (amountL != null) {
+            return acc + (amountL * 1000.0); // Litres vers ml
+          }
+          return acc + ((data['amountMl'] ?? 0.0) as num).toDouble();
+        });
       } else if (type == ChallengeType.fasting) {
         final snap =
             await _db
@@ -421,8 +420,9 @@ class SocialService {
 
         return snap.docs.fold<double>(0.0, (acc, doc) {
           final data = doc.data();
-          final durationMinutes = (data['durationMinutes'] ?? 0).toDouble();
-          return acc + (durationMinutes / 60.0);
+          // ✅ CORRECTION : durationSeconds au lieu de durationMinutes et conversion en heures
+          final durationSeconds = ((data['durationSeconds'] ?? 0) as num).toDouble();
+          return acc + (durationSeconds / 3600.0);
         });
       }
       return 0.0;
@@ -467,54 +467,54 @@ class SocialService {
         }
       }
 
-      // ✅ CORRECTION : Exécution parallèle des calculs de score au lieu d'await séquentiel
-      await Future.wait(challenges.map((challenge) async {
-        if (challenge.status == ChallengeStatus.active ||
-            challenge.status == ChallengeStatus.finished) {
-          challenge.creatorScore = await calculateScoreForUser(
-            challenge.creatorUid,
-            challenge.type,
-            challenge.startDate,
-            challenge.endDate,
-          );
-          challenge.opponentScore = await calculateScoreForUser(
-            challenge.opponentUid,
-            challenge.type,
-            challenge.startDate,
-            challenge.endDate,
-          );
-
-          if (now.isAfter(challenge.endDate) &&
-              challenge.status != ChallengeStatus.finished) {
-            challenge.status = ChallengeStatus.finished;
-            final winnerUid =
-                challenge.creatorScore >= challenge.opponentScore
-                    ? challenge.creatorUid
-                    : challenge.opponentUid;
-            challenge.winnerUid = winnerUid;
-
-            await _db.collection('challenges').doc(challenge.id).update({
-              'status': ChallengeStatus.finished.name,
-              'creatorScore': challenge.creatorScore,
-              'opponentScore': challenge.opponentScore,
-              'winnerUid': winnerUid,
-            });
-
-            final winnerName =
-                winnerUid == challenge.creatorUid
-                    ? challenge.creatorName
-                    : challenge.opponentName;
-            final loserName =
-                winnerUid == challenge.creatorUid
-                    ? challenge.opponentName
-                    : challenge.creatorName;
-            await publishSuccessActivity(
-              "🏆 Victoire en Duel",
-              "a vu $winnerName l'emporter sur $loserName (${challenge.creatorScore.toInt()} vs ${challenge.opponentScore.toInt()})",
+      // ✅ CORRECTION & OPTIMISATION : Calcul uniquement sur les duels actifs (évite l'explosion de requêtes sur les duels terminés)
+      await Future.wait(
+        challenges.map((challenge) async {
+          if (challenge.status == ChallengeStatus.active) {
+            challenge.creatorScore = await calculateScoreForUser(
+              challenge.creatorUid,
+              challenge.type,
+              challenge.startDate,
+              challenge.endDate,
             );
+            challenge.opponentScore = await calculateScoreForUser(
+              challenge.opponentUid,
+              challenge.type,
+              challenge.startDate,
+              challenge.endDate,
+            );
+
+            if (now.isAfter(challenge.endDate)) {
+              challenge.status = ChallengeStatus.finished;
+              final winnerUid =
+                  challenge.creatorScore >= challenge.opponentScore
+                      ? challenge.creatorUid
+                      : challenge.opponentUid;
+              challenge.winnerUid = winnerUid;
+
+              await _db.collection('challenges').doc(challenge.id).update({
+                'status': ChallengeStatus.finished.name,
+                'creatorScore': challenge.creatorScore,
+                'opponentScore': challenge.opponentScore,
+                'winnerUid': winnerUid,
+              });
+
+              final winnerName =
+                  winnerUid == challenge.creatorUid
+                      ? challenge.creatorName
+                      : challenge.opponentName;
+              final loserName =
+                  winnerUid == challenge.creatorUid
+                      ? challenge.opponentName
+                      : challenge.creatorName;
+              await publishSuccessActivity(
+                "🏆 Victoire en Duel",
+                "a vu $winnerName l'emporter sur $loserName (${challenge.creatorScore.toInt()} vs ${challenge.opponentScore.toInt()})",
+              );
+            }
           }
-        }
-      }));
+        }),
+      );
 
       challenges.sort((a, b) => b.startDate.compareTo(a.startDate));
       return challenges;

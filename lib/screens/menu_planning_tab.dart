@@ -40,7 +40,6 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   final TextEditingController _promptController = TextEditingController();
-  final TextEditingController _searchApiController = TextEditingController();
   final Set<String> _checkedIngredients = {};
 
   String _recipeDifficulty = 'Normal'; // Simple, Normal, Difficile
@@ -52,9 +51,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
   ];
 
   List<dynamic> _dailySuggestions = [];
-  List<dynamic> _apiSearchResults = [];
   bool _isLoadingApi = false;
-  bool _isSearchingApi = false;
   bool _isProcessing = false;
 
   @override
@@ -66,20 +63,18 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
       "[TheMealDB] initState appelé - Lancement de _fetchDailySuggestions...",
     );
 
-    _fetchDailySuggestions(); // <--- Assure-toi que c'est bien cette ligne
+    _fetchDailySuggestions();
   }
 
   @override
   void dispose() {
     _promptController.dispose();
-    _searchApiController.dispose();
     super.dispose();
   }
 
   Future<String?> _fetchImageUrl(String query) async {
-    // ✅ CORRECTION : Le scraping Bing est instable et viole les règles des stores.
-    // Remplacement par une image générique de haute qualité via Unsplash.
-    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop"; 
+    final cleanQuery = Uri.encodeComponent(query.trim());
+    return "https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop&q=80&sig=$cleanQuery";
   }
 
   // --- LISTE DE COURSES AUTOMATIQUE PAR DATE ---
@@ -207,166 +202,70 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     );
   }
 
-  // --- SUGGESTIONS THEMEALDB AVEC LOGS ---
-  // --- SUGGESTIONS THEMEALDB (VERSION CORRIGÉE ET ROBUSTE) ---
-  // --- SUGGESTIONS THEMEALDB - VERSION FINALE (logs très précis) ---
+  // --- SUGGESTIONS THEMEALDB (PARALLÉLISÉES VIA FUTURE.WAIT) ---
   Future<void> _fetchDailySuggestions() async {
     if (!mounted) return;
 
     setState(() => _isLoadingApi = true);
 
-    debugPrint("==================================================");
-    debugPrint(
-      "[TheMealDB] 🚀 DÉMARRAGE récupération suggestions quotidiennes",
-    );
-
     try {
-      // Catégories fiables selon TheMealDB en 2026
       final List<String> categories = ['Chicken', 'Beef', 'Seafood', 'Dessert'];
 
-      final List<dynamic> tempSuggestions = [];
-
-      for (final String category in categories) {
-        debugPrint("\n[TheMealDB] === Catégorie : $category ===");
-
-        final Uri url = Uri.https(
-          'www.themealdb.com',
-          '/api/json/v1/1/filter.php',
-          {'c': category},
-        );
-
-        debugPrint("[TheMealDB] URL → $url");
-
-        final response = await http
-            .get(url)
-            .timeout(const Duration(seconds: 15));
-
-        debugPrint("[TheMealDB] Status HTTP → ${response.statusCode}");
-        debugPrint(
-          "[TheMealDB] Taille réponse → ${response.body.length} caractères",
-        );
-
-        if (response.statusCode != 200) {
-          debugPrint("[TheMealDB] ❌ Erreur HTTP ${response.statusCode}");
-          continue;
-        }
-
-        final data = json.decode(response.body);
-
-        debugPrint(
-          "[TheMealDB] Clé 'meals' présente ? ${data.containsKey('meals')}",
-        );
-        debugPrint(
-          "[TheMealDB] Type de 'meals' → ${data['meals']?.runtimeType}",
-        );
-
-        if (data['meals'] == null) {
-          debugPrint(
-            "[TheMealDB] ⚠️ 'meals' est NULL (comportement courant de TheMealDB)",
+      final results = await Future.wait(categories.map((category) async {
+        try {
+          final Uri url = Uri.https(
+            'www.themealdb.com',
+            '/api/json/v1/1/filter.php',
+            {'c': category},
           );
-          continue;
-        }
 
-        final List<dynamic>? meals = data['meals'] as List<dynamic>?;
+          final response = await http
+              .get(url)
+              .timeout(const Duration(seconds: 8));
 
-        if (meals == null || meals.isEmpty) {
-          debugPrint("[TheMealDB] ⚠️ Liste de repas vide pour $category");
-          continue;
-        }
+          if (response.statusCode != 200) return null;
 
-        debugPrint("[TheMealDB] ✅ ${meals.length} repas trouvés !");
+          final data = json.decode(response.body);
+          final List<dynamic>? meals = data['meals'] as List<dynamic>?;
+          if (meals == null || meals.isEmpty) return null;
 
-        // Sélection aléatoire
-        final randomMeal = meals[Random().nextInt(meals.length)];
-        final String mealId = randomMeal['idMeal'].toString();
-        final String mealName = randomMeal['strMeal'] ?? 'Sans nom';
+          final randomMeal = meals[Random().nextInt(meals.length)];
+          final String mealId = randomMeal['idMeal'].toString();
 
-        debugPrint(
-          "[TheMealDB] 🎲 Repas sélectionné → $mealName (ID: $mealId)",
-        );
+          final Uri detailUrl = Uri.https(
+            'www.themealdb.com',
+            '/api/json/v1/1/lookup.php',
+            {'i': mealId},
+          );
 
-        // Récupération des détails complets
-        final Uri detailUrl = Uri.https(
-          'www.themealdb.com',
-          '/api/json/v1/1/lookup.php',
-          {'i': mealId},
-        );
+          final detailResp = await http
+              .get(detailUrl)
+              .timeout(const Duration(seconds: 8));
 
-        final detailResp = await http
-            .get(detailUrl)
-            .timeout(const Duration(seconds: 10));
-
-        if (detailResp.statusCode == 200) {
-          final detailData = json.decode(detailResp.body);
-          if (detailData['meals'] != null &&
-              (detailData['meals'] as List).isNotEmpty) {
-            tempSuggestions.add(detailData['meals'][0]);
-            debugPrint("[TheMealDB] ✅ Détails ajoutés avec succès");
-          } else {
-            debugPrint("[TheMealDB] ⚠️ Détails vides pour cet ID");
+          if (detailResp.statusCode == 200) {
+            final detailData = json.decode(detailResp.body);
+            if (detailData['meals'] != null &&
+                (detailData['meals'] as List).isNotEmpty) {
+              return detailData['meals'][0];
+            }
           }
-        } else {
-          debugPrint(
-            "[TheMealDB] ❌ Erreur lookup.php : ${detailResp.statusCode}",
-          );
+        } catch (e) {
+          debugPrint("[TheMealDB] Erreur catégorie $category: $e");
         }
-      }
+        return null;
+      }));
 
-      debugPrint(
-        "\n[TheMealDB] 🎯 FIN → ${tempSuggestions.length} suggestions récupérées",
-      );
+      final List<dynamic> validSuggestions =
+          results.where((item) => item != null).toList();
 
       if (mounted) {
         setState(() {
-          _dailySuggestions = tempSuggestions;
+          _dailySuggestions = validSuggestions;
           _isLoadingApi = false;
         });
       }
-
-      if (tempSuggestions.isEmpty) {
-        debugPrint(
-          "[TheMealDB] ❌ Aucune suggestion n'a pu être chargée aujourd'hui",
-        );
-      }
-    } catch (e, stackTrace) {
-      debugPrint("[TheMealDB] 🔥 EXCEPTION : $e");
-      debugPrint(stackTrace.toString());
-      if (mounted) setState(() => _isLoadingApi = false);
-    }
-
-    debugPrint("==================================================\n");
-  }
-
-  Future<void> _searchApiRecipes(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _isSearchingApi = false;
-        _apiSearchResults = [];
-      });
-      return;
-    }
-    setState(() {
-      _isLoadingApi = true;
-      _isSearchingApi = true;
-    });
-
-    try {
-      final response = await http.get(
-        Uri.parse(
-          'https://www.themealdb.com/api/json/v1/1/search.php?s=${Uri.encodeQueryComponent(query)}',
-        ),
-      );
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (mounted) {
-          setState(() {
-            _apiSearchResults = (data['meals'] as List?) ?? [];
-            _isLoadingApi = false;
-          });
-        }
-      }
     } catch (e) {
-      debugPrint("Erreur recherche API: $e");
+      debugPrint("[TheMealDB] Exception: $e");
       if (mounted) setState(() => _isLoadingApi = false);
     }
   }
@@ -708,8 +607,9 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
         final List<dynamic> mealsRaw = result['meals'] ?? [];
 
         DateTime baseDate = _selectedDay!;
-        if (isWeekly)
+        if (isWeekly) {
           baseDate = baseDate.subtract(Duration(days: baseDate.weekday - 1));
+        }
 
         for (var m in mealsRaw) {
           int dayOffset = safeParseInt(m['day_offset']);
@@ -930,7 +830,7 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
@@ -960,8 +860,9 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
       MealType.dinner: [],
     };
     for (var m in mealsForSelectedDay) {
-      if (groupedMeals.containsKey(m.mealType))
+      if (groupedMeals.containsKey(m.mealType)) {
         groupedMeals[m.mealType]!.add(m);
+      }
     }
 
     return Scaffold(
@@ -1298,8 +1199,8 @@ class _MenuPlanningTabState extends State<MenuPlanningTab> {
               decoration: BoxDecoration(
                 color:
                     meal.source == 'IA'
-                        ? Colors.purple.withOpacity(0.2)
-                        : Colors.green.withOpacity(0.2),
+                        ? Colors.purple.withValues(alpha: 0.2)
+                        : Colors.green.withValues(alpha: 0.2),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(

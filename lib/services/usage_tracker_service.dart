@@ -34,28 +34,8 @@ class UsageTrackerService {
     return 0;
   }
 
-  Future<void> incrementApiCall(String apiType) async {
-    if (userId.isEmpty) return;
-    try {
-      final docRef = _db
-          .collection('users')
-          .doc(userId)
-          .collection('usageTracking')
-          .doc(_getTodayDocId());
-      await docRef.set({
-        apiType: FieldValue.increment(1),
-        'lastUpdate': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e) {
-      debugPrint('Erreur mise à jour usageTracking: $e');
-    }
-  }
-
   Future<int> getPhotoAnalysisCount() => getApiCallCount('photo_analysis_ia');
-  Future<void> incrementPhotoAnalysis() => incrementApiCall('photo_analysis_ia');
-
   Future<int> getScanAnalysisCount() => getApiCallCount('scan_analysis_ia');
-  Future<void> incrementScanAnalysis() => incrementApiCall('scan_analysis_ia');
 
   Future<int> getAiApiCallCount() async {
     final count = await getApiCallCount('ai_api_calls');
@@ -64,8 +44,6 @@ class UsageTrackerService {
     }
     return count;
   }
-  Future<void> incrementAiApiCall() => incrementApiCall('ai_api_calls');
 
   Future<int> getDeepSeekApiCallCount() => getAiApiCallCount();
-  Future<void> incrementDeepSeekApiCall() => incrementAiApiCall();
 }

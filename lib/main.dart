@@ -43,26 +43,25 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
+import 'utils/helpers.dart' hide isSameDay;
+export 'utils/helpers.dart';
+
+import 'models/food_entry.dart';
+import 'models/meal_type.dart';
+import 'models/meal_plan_entry.dart';
+import 'models/user_profile.dart';
+import 'services/usage_tracker_service.dart';
+
+export 'models/food_entry.dart';
+export 'models/meal_type.dart';
+export 'models/meal_plan_entry.dart';
+export 'models/user_profile.dart';
+export 'services/usage_tracker_service.dart';
 
 // NOUVEAU: Notifier global pour le mode de thème (Clair / Sombre / Système)
 final ValueNotifier<ThemeMode> appThemeNotifier = ValueNotifier(
   ThemeMode.system,
 );
-
-// =============================================================================
-// HELPERS GLOBAUX POUR LE PARSING SÉCURISÉ DES RÉPONSES IA
-// =============================================================================
-double safeParseDouble(dynamic val, [double defaultVal = 0.0]) {
-  if (val == null) return defaultVal;
-  if (val is num) return val.toDouble();
-  return double.tryParse(val.toString()) ?? defaultVal;
-}
-
-int safeParseInt(dynamic val, [int defaultVal = 0]) {
-  if (val == null) return defaultVal;
-  if (val is num) return val.toInt();
-  return int.tryParse(val.toString()) ?? defaultVal;
-}
 
 class AppStateProvider extends ChangeNotifier {
   final FirestoreService _firestoreService;
@@ -821,148 +820,7 @@ class SubscriptionService {
   }
 }
 
-class UsageTrackerService {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final String userId;
-  int currentStreak = 0;
-
-  // Calcul du bonus : 5 de base + 3 appels supplémentaires tous les 5 jours de série
-  int get aiLimit => 5 + ((currentStreak ~/ 5) * 3);
-  int get deepSeekLimit => aiLimit;
-
-  UsageTrackerService({required this.userId});
-
-  String _getTodayDocId() {
-    return DateFormat('yyyy-MM-dd').format(DateTime.now());
-  }
-
-  Future<int> getApiCallCount(String apiType) async {
-    final todayDoc =
-        await _db
-            .collection('users')
-            .doc(userId)
-            .collection('usageTracking')
-            .doc(_getTodayDocId())
-            .get();
-    if (todayDoc.exists) {
-      return (todayDoc.data()?[apiType] ?? 0) as int;
-    }
-    return 0;
-  }
-
-  Future<void> incrementApiCall(String apiType) async {
-    final docRef = _db
-        .collection('users')
-        .doc(userId)
-        .collection('usageTracking')
-        .doc(_getTodayDocId());
-    await docRef.set({
-      apiType: FieldValue.increment(1),
-      'lastUpdate': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  }
-
-  Future<int> getPhotoAnalysisCount() => getApiCallCount('photo_analysis_ia');
-  Future<void> incrementPhotoAnalysis() =>
-      incrementApiCall('photo_analysis_ia');
-
-  Future<int> getScanAnalysisCount() => getApiCallCount('scan_analysis_ia');
-  Future<void> incrementScanAnalysis() => incrementApiCall('scan_analysis_ia');
-
-  Future<int> getAiApiCallCount() async {
-    final count = await getApiCallCount('ai_api_calls');
-    if (count == 0) {
-      return getApiCallCount('deepseek_api_calls');
-    }
-    return count;
-  }
-
-  Future<void> incrementAiApiCall() => incrementApiCall('ai_api_calls');
-
-  Future<int> getDeepSeekApiCallCount() => getAiApiCallCount();
-  Future<void> incrementDeepSeekApiCall() => incrementAiApiCall();
-}
-
-// =============================================================================
-// MODÈLES DE DONNÉES MIS À JOUR (avec fromFirestore et toFirestore)
-// =============================================================================
-
 const uuid = Uuid();
-
-enum MealType { breakfast, lunch, dinner, snack, unknown }
-
-extension MealTypeExtension on MealType {
-  String toCapitalizedString() {
-    switch (this) {
-      case MealType.breakfast:
-        return 'Petit-déjeuner';
-      case MealType.lunch:
-        return 'Déjeuner';
-      case MealType.dinner:
-        return 'Dîner';
-      case MealType.snack:
-        return 'Collation';
-      case MealType.unknown:
-        return 'Inconnu';
-    }
-  }
-}
-
-class FoodEntry {
-  final String id;
-  final String name;
-  final int calories;
-  final double proteins;
-  final double carbs;
-  final double fats;
-  final DateTime timestamp;
-  final MealType mealType;
-  final bool isAiEstimated;
-  final String? source;
-
-  FoodEntry({
-    String? id,
-    required this.name,
-    required this.calories,
-    required this.proteins,
-    required this.carbs,
-    required this.fats,
-    required this.timestamp,
-    this.mealType = MealType.unknown,
-    this.isAiEstimated = false,
-    this.source,
-  }) : id = id ?? uuid.v4();
-
-  Map<String, dynamic> toFirestore() => {
-    'id': id,
-    'name': name,
-    'calories': calories,
-    'proteins': proteins,
-    'carbs': carbs,
-    'fats': fats,
-    'timestamp': Timestamp.fromDate(timestamp),
-    'mealType': mealType.name,
-    'isAiEstimated': isAiEstimated,
-    'source': source,
-  };
-
-  factory FoodEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
-      FoodEntry(
-        id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
-        name: json['name'],
-        calories: json['calories'],
-        proteins: (json['proteins'] as num).toDouble(),
-        carbs: (json['carbs'] as num).toDouble(),
-        fats: (json['fats'] as num).toDouble(),
-        timestamp: (json['timestamp'] as Timestamp).toDate(),
-        mealType: MealType.values.firstWhere(
-          (e) => e.name == json['mealType'],
-          orElse: () => MealType.unknown,
-        ),
-        isAiEstimated: json['isAiEstimated'],
-        source: json['source'],
-      );
-}
 
 class ScannedProduct {
   final String id;
@@ -1101,408 +959,6 @@ class FastingProgram {
   );
 }
 
-class DailyGoal {
-  int targetCalories;
-  double targetProteins;
-  double targetCarbs;
-  double targetFats;
-  double targetWeight;
-  String weightGoalType; // 'lose', 'gain', 'maintain'
-  double targetWater; // en litres
-  Duration? targetFastingDuration;
-  double? targetMuscleGain; // NOUVEAU: Objectif de prise de muscle en kg
-  double?
-  weeklyEnergyExpenditureGoal; // NOUVEAU: Dépense énergétique hebdomadaire
-
-  DailyGoal({
-    this.targetCalories = 2000,
-    this.targetProteins = 100.0,
-    this.targetCarbs = 200.0,
-    this.targetFats = 60.0,
-    this.targetWeight = 70.0,
-    this.weightGoalType = 'maintain',
-    this.targetWater = 2.0,
-    this.targetFastingDuration = const Duration(hours: 16),
-    this.targetMuscleGain,
-    this.weeklyEnergyExpenditureGoal,
-  });
-
-  DailyGoal copyWith({
-    int? targetCalories,
-    double? targetProteins,
-    double? targetCarbs,
-    double? targetFats,
-    double? targetWeight,
-    String? weightGoalType,
-    double? targetWater,
-    Duration? targetFastingDuration,
-    double? targetMuscleGain,
-    double? weeklyEnergyExpenditureGoal,
-  }) {
-    return DailyGoal(
-      targetCalories: targetCalories ?? this.targetCalories,
-      targetProteins: targetProteins ?? this.targetProteins,
-      targetCarbs: targetCarbs ?? this.targetCarbs,
-      targetFats: targetFats ?? this.targetFats,
-      targetWeight: targetWeight ?? this.targetWeight,
-      weightGoalType: weightGoalType ?? this.weightGoalType,
-      targetWater: targetWater ?? this.targetWater,
-      targetFastingDuration:
-          targetFastingDuration ?? this.targetFastingDuration,
-      targetMuscleGain: targetMuscleGain ?? this.targetMuscleGain,
-      weeklyEnergyExpenditureGoal:
-          weeklyEnergyExpenditureGoal ?? this.weeklyEnergyExpenditureGoal,
-    );
-  }
-
-  Map<String, dynamic> toFirestore() => {
-    'targetCalories': targetCalories,
-    'targetProteins': targetProteins,
-    'targetCarbs': targetCarbs,
-    'targetFats': targetFats,
-    'targetWeight': targetWeight,
-    'weightGoalType': weightGoalType,
-    'targetWater': targetWater,
-    'targetFastingDurationSeconds': targetFastingDuration?.inSeconds,
-    'targetMuscleGain': targetMuscleGain,
-    'weeklyEnergyExpenditureGoal': weeklyEnergyExpenditureGoal,
-  };
-
-  factory DailyGoal.fromFirestore(Map<String, dynamic> json, String docId) =>
-      DailyGoal(
-        targetCalories: json['targetCalories'] ?? 2000,
-        targetProteins: (json['targetProteins'] as num?)?.toDouble() ?? 100.0,
-        targetCarbs: (json['targetCarbs'] as num?)?.toDouble() ?? 200.0,
-        targetFats: (json['fats'] as num?)?.toDouble() ?? 60.0,
-        targetWeight: (json['targetWeight'] as num?)?.toDouble() ?? 70.0,
-        weightGoalType: json['weightGoalType'] ?? 'maintain',
-        targetWater: (json['targetWater'] as num?)?.toDouble() ?? 2.0,
-        targetFastingDuration:
-            json['targetFastingDurationSeconds'] != null
-                ? Duration(seconds: json['targetFastingDurationSeconds'])
-                : const Duration(hours: 16),
-        targetMuscleGain: (json['targetMuscleGain'] as num?)?.toDouble(),
-        weeklyEnergyExpenditureGoal:
-            (json['weeklyEnergyExpenditureGoal'] as num?)?.toDouble(),
-      );
-}
-
-// NOUVEAU: Modèle pour l'historique d'un objectif
-enum GoalStatus { inProgress, achieved, failed }
-
-class GoalHistoryEntry {
-  final String id;
-  final String goalType; // 'lose', 'gain', 'maintain'
-  final double startWeight;
-  final double targetWeight;
-  final DateTime startDate;
-  final DateTime? endDate;
-  final GoalStatus status;
-
-  GoalHistoryEntry({
-    String? id,
-    required this.goalType,
-    required this.startWeight,
-    required this.targetWeight,
-    required this.startDate,
-    this.endDate,
-    this.status = GoalStatus.inProgress,
-  }) : id = id ?? uuid.v4();
-
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'goalType': goalType,
-    'startWeight': startWeight,
-    'targetWeight': targetWeight,
-    'startDate': Timestamp.fromDate(startDate),
-    'endDate': endDate != null ? Timestamp.fromDate(endDate!) : null,
-    'status': status.name,
-  };
-
-  factory GoalHistoryEntry.fromMap(Map<String, dynamic> map) =>
-      GoalHistoryEntry(
-        id: map['id'],
-        goalType: map['goalType'],
-        startWeight: (map['startWeight'] as num).toDouble(),
-        targetWeight: (map['targetWeight'] as num).toDouble(),
-        startDate: (map['startDate'] as Timestamp).toDate(),
-        endDate:
-            map['endDate'] != null
-                ? (map['endDate'] as Timestamp).toDate()
-                : null,
-        status: GoalStatus.values.firstWhere(
-          (e) => e.name == map['status'],
-          orElse: () => GoalStatus.inProgress,
-        ),
-      );
-}
-
-class UserProfile {
-  String id;
-  String? firstName;
-  String? lastName;
-  String? email;
-  int age;
-  double weight;
-  double height;
-  String gender;
-  String activityLevel;
-  String physicalCondition;
-  String fastingExperience;
-  List<String> dietaryPreferences;
-  List<String> healthConditions;
-
-  // MODIFIÉ: Anciens et nouveaux champs pour les habitudes de vie
-  int mealsPerDay;
-  String dietQuality; // 'saine', 'moyenne', 'peu_saine'
-  bool tendsToEatSugary;
-  bool tendsToEatSalty;
-  int sleepHours;
-  String stressLevel;
-  String mainMotivation;
-  int planStrictness;
-  // NOUVEAU: Champs pour les habitudes culinaires
-  String? likesCooking; // 'loves', 'likes', 'dislikes'
-  String?
-  cookingFrequency; // 'daily', 'few_times_week', 'weekends_only', 'rarely'
-  String likedSports;
-  String dislikedSports;
-
-  double? bodyFatPercentage;
-  List<String> availableEquipment;
-  bool gymMode;
-
-  List<GoalHistoryEntry> goalHistory;
-  String countryCode;
-  bool friendsRankingVisible;
-  bool worldRankingVisible;
-
-  UserProfile({
-    String? id,
-    this.firstName,
-    this.lastName,
-    this.email,
-    required this.age,
-    required this.weight,
-    required this.height,
-    required this.gender,
-    required this.activityLevel,
-    this.physicalCondition = 'mince',
-    this.fastingExperience = 'beginner',
-    this.dietaryPreferences = const [],
-    this.healthConditions = const [],
-    this.mealsPerDay = 3,
-    this.dietQuality = 'moyenne',
-    this.tendsToEatSugary = false,
-    this.tendsToEatSalty = false,
-    this.sleepHours = 7,
-    this.stressLevel = 'moderate',
-    this.mainMotivation = 'health',
-    this.planStrictness = 3,
-    // NOUVEAU
-    this.likesCooking = 'likes',
-    this.cookingFrequency = 'few_times_week',
-    this.likedSports = '',
-    this.dislikedSports = '',
-    this.bodyFatPercentage,
-    this.availableEquipment = const [],
-    this.gymMode = false,
-    this.goalHistory = const [],
-    this.countryCode = 'FR',
-    this.friendsRankingVisible = false,
-    this.worldRankingVisible = false,
-  }) : id = id ?? uuid.v4();
-
-  String get fullName => '${firstName ?? ''} ${lastName ?? ''}'.trim();
-
-  double get bmi {
-    if (height <= 0) return 0;
-    return weight / ((height / 100) * (height / 100));
-  }
-
-  double? get ffmi {
-    if (bodyFatPercentage == null || height <= 0) return null;
-    double leanMass = weight * (1 - (bodyFatPercentage! / 100));
-    return leanMass / ((height / 100) * (height / 100));
-  }
-
-  double? get leanBodyMass {
-    if (bodyFatPercentage == null) return null;
-    return weight * (1 - (bodyFatPercentage! / 100));
-  }
-
-  String get bmiCategory {
-    final imcValue = bmi;
-    if (imcValue <= 0) return "Données invalides";
-    if (imcValue < 18.5) return "Maigreur";
-    if (imcValue < 25) return "Poids normal";
-    if (imcValue < 30) return "Surpoids";
-    if (imcValue < 35) return "Obésité modérée (Classe I)";
-    if (imcValue < 40) return "Obésité sévère (Classe II)";
-    return "Obésité morbide (Classe III)";
-  }
-
-  bool get isUnderweight => bmi < 18.5;
-  bool get isOverweight => bmi >= 25;
-  bool get isObese => bmi >= 30;
-
-  double get minNormalWeight {
-    if (height <= 0) return 0;
-    return 18.5 * (height / 100) * (height / 100);
-  }
-
-  double get maxNormalWeight {
-    if (height <= 0) return 0;
-    return 24.9 * (height / 100) * (height / 100);
-  }
-
-  UserProfile copyWith({
-    String? firstName,
-    String? lastName,
-    String? email,
-    int? age,
-    double? weight,
-    double? height,
-    String? gender,
-    String? activityLevel,
-    String? physicalCondition,
-    String? fastingExperience,
-    List<String>? dietaryPreferences,
-    List<String>? healthConditions,
-    int? mealsPerDay,
-    String? dietQuality,
-    bool? tendsToEatSugary,
-    bool? tendsToEatSalty,
-    int? sleepHours,
-    String? stressLevel,
-    String? mainMotivation,
-    int? planStrictness,
-    // NOUVEAU
-    String? likesCooking,
-    String? cookingFrequency,
-    String? likedSports,
-    String? dislikedSports,
-    double? bodyFatPercentage,
-    List<String>? availableEquipment,
-    bool? gymMode,
-    List<GoalHistoryEntry>? goalHistory,
-    String? countryCode,
-    bool? friendsRankingVisible,
-    bool? worldRankingVisible,
-  }) {
-    return UserProfile(
-      id: id,
-      firstName: firstName ?? this.firstName,
-      lastName: lastName ?? this.lastName,
-      email: email ?? this.email,
-      age: age ?? this.age,
-      weight: weight ?? this.weight,
-      height: height ?? this.height,
-      gender: gender ?? this.gender,
-      activityLevel: activityLevel ?? this.activityLevel,
-      physicalCondition: physicalCondition ?? this.physicalCondition,
-      fastingExperience: fastingExperience ?? this.fastingExperience,
-      dietaryPreferences: dietaryPreferences ?? this.dietaryPreferences,
-      healthConditions: healthConditions ?? this.healthConditions,
-      mealsPerDay: mealsPerDay ?? this.mealsPerDay,
-      dietQuality: dietQuality ?? this.dietQuality,
-      tendsToEatSugary: tendsToEatSugary ?? this.tendsToEatSugary,
-      tendsToEatSalty: tendsToEatSalty ?? this.tendsToEatSalty,
-      sleepHours: sleepHours ?? this.sleepHours,
-      stressLevel: stressLevel ?? this.stressLevel,
-      mainMotivation: mainMotivation ?? this.mainMotivation,
-      planStrictness: planStrictness ?? this.planStrictness,
-      // NOUVEAU
-      likesCooking: likesCooking ?? this.likesCooking,
-      cookingFrequency: cookingFrequency ?? this.cookingFrequency,
-      likedSports: likedSports ?? this.likedSports,
-      dislikedSports: dislikedSports ?? this.dislikedSports,
-      bodyFatPercentage: bodyFatPercentage ?? this.bodyFatPercentage,
-      availableEquipment: availableEquipment ?? this.availableEquipment,
-      gymMode: gymMode ?? this.gymMode,
-      goalHistory: goalHistory ?? this.goalHistory,
-      countryCode: countryCode ?? this.countryCode,
-      friendsRankingVisible:
-          friendsRankingVisible ?? this.friendsRankingVisible,
-      worldRankingVisible: worldRankingVisible ?? this.worldRankingVisible,
-    );
-  }
-
-  Map<String, dynamic> toFirestore() => {
-    'firstName': firstName,
-    'lastName': lastName,
-    'age': age,
-    'weight': weight,
-    'height': height,
-    'gender': gender,
-    'activityLevel': activityLevel,
-    'physicalCondition': physicalCondition,
-    'fastingExperience': fastingExperience,
-    'dietaryPreferences': dietaryPreferences,
-    'healthConditions': healthConditions,
-    'mealsPerDay': mealsPerDay,
-    'dietQuality': dietQuality,
-    'tendsToEatSugary': tendsToEatSugary,
-    'tendsToEatSalty': tendsToEatSalty,
-    'sleepHours': sleepHours,
-    'stressLevel': stressLevel,
-    'mainMotivation': mainMotivation,
-    'planStrictness': planStrictness,
-    // NOUVEAU
-    'likesCooking': likesCooking,
-    'cookingFrequency': cookingFrequency,
-    'likedSports': likedSports,
-    'dislikedSports': dislikedSports,
-    if (bodyFatPercentage != null) 'bodyFatPercentage': bodyFatPercentage,
-    'availableEquipment': availableEquipment,
-    'gymMode': gymMode,
-    'goalHistory': goalHistory.map((e) => e.toMap()).toList(),
-    'countryCode': countryCode,
-    'privacyFriends': friendsRankingVisible,
-    'privacyWorld': worldRankingVisible,
-    'displayName': fullName,
-  };
-
-  factory UserProfile.fromFirestore(Map<String, dynamic> json, String docId) =>
-      UserProfile(
-        id: json['id'] ?? docId,
-        firstName: json['firstName'],
-        lastName: json['lastName'],
-        age: json['age'] ?? 25,
-        weight: (json['weight'] as num?)?.toDouble() ?? 70.0,
-        height: (json['height'] as num?)?.toDouble() ?? 170.0,
-        gender: json['gender'] ?? 'male',
-        activityLevel: json['activityLevel'] ?? 'moderate',
-        physicalCondition: json['physicalCondition'] ?? 'mince',
-        fastingExperience: json['fastingExperience'] ?? 'beginner',
-        dietaryPreferences: List<String>.from(json['dietaryPreferences'] ?? []),
-        healthConditions: List<String>.from(json['healthConditions'] ?? []),
-        availableEquipment: List<String>.from(json['availableEquipment'] ?? []),
-        gymMode: json['gymMode'] ?? false,
-        mealsPerDay: json['mealsPerDay'] ?? 3,
-        dietQuality: json['dietQuality'] ?? 'moyenne',
-        tendsToEatSugary: json['tendsToEatSugary'] ?? false,
-        tendsToEatSalty: json['tendsToEatSalty'] ?? false,
-        sleepHours: json['sleepHours'] ?? 7,
-        stressLevel: json['stressLevel'] ?? 'moderate',
-        mainMotivation: json['mainMotivation'] ?? 'health',
-        planStrictness: json['planStrictness'] ?? 3,
-        // NOUVEAU
-        likesCooking: json['likesCooking'] ?? 'likes',
-        cookingFrequency: json['cookingFrequency'] ?? 'few_times_week',
-        likedSports: json['likedSports'] ?? '',
-        dislikedSports: json['dislikedSports'] ?? '',
-        bodyFatPercentage: (json['bodyFatPercentage'] as num?)?.toDouble(),
-        goalHistory:
-            (json['goalHistory'] as List<dynamic>?)
-                ?.map((e) => GoalHistoryEntry.fromMap(e))
-                .toList() ??
-            [],
-        countryCode: json['countryCode'] ?? 'FR',
-        friendsRankingVisible: json['privacyFriends'] ?? false,
-        worldRankingVisible: json['privacyWorld'] ?? false,
-      );
-}
 
 class SetNewGoalScreen extends StatefulWidget {
   final UserProfile userProfile;
@@ -1721,101 +1177,7 @@ class _SetNewGoalScreenState extends State<SetNewGoalScreen> {
   }
 }
 
-class MealPlanEntry {
-  final String id;
-  final DateTime date;
-  final MealType mealType;
-  final String mealName;
-  final String description;
-  final int estimatedCalories;
-  final double estimatedProteins;
-  final double estimatedCarbs;
-  final double estimatedFats;
-  final String? imageUrl;
-  final String? recipeInstructions;
-  final int? prepTime;
-  final List<String>? utensils;
-  final List<String>? ingredients;
-  final String source;
 
-  MealPlanEntry({
-    String? id,
-    required this.date,
-    required this.mealType,
-    required this.mealName,
-    this.description = '',
-    this.estimatedCalories = 0,
-    this.estimatedProteins = 0.0,
-    this.estimatedCarbs = 0.0,
-    this.estimatedFats = 0.0,
-    this.imageUrl,
-    this.recipeInstructions,
-    this.prepTime,
-    this.utensils,
-    this.ingredients,
-    this.source = 'IA',
-  }) : id = id ?? uuid.v4();
-
-  FoodEntry toFoodEntry() {
-    return FoodEntry(
-      name: mealName,
-      calories: estimatedCalories,
-      proteins: estimatedProteins,
-      carbs: estimatedCarbs,
-      fats: estimatedFats,
-      timestamp: date,
-      mealType: mealType,
-      isAiEstimated: true,
-      source: source,
-    );
-  }
-
-  Map<String, dynamic> toFirestore() => {
-    'id': id,
-    'date': Timestamp.fromDate(date),
-    'mealType': mealType.name,
-    'mealName': mealName,
-    'description': description,
-    'estimatedCalories': estimatedCalories,
-    'estimatedProteins': estimatedProteins,
-    'estimatedCarbs': estimatedCarbs,
-    'estimatedFats': estimatedFats,
-    'imageUrl': imageUrl,
-    'recipeInstructions': recipeInstructions,
-    'prepTime': prepTime,
-    'utensils': utensils,
-    'ingredients': ingredients,
-    'source': source,
-  };
-
-  factory MealPlanEntry.fromFirestore(
-    Map<String, dynamic> json,
-    String docId,
-  ) => MealPlanEntry(
-    id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
-    date: (json['date'] as Timestamp).toDate(),
-    mealType: MealType.values.firstWhere(
-      (e) => e.name == json['mealType'],
-      orElse: () => MealType.unknown,
-    ),
-    mealName: json['mealName'],
-    description: json['description'] ?? '',
-    estimatedCalories: json['estimatedCalories'] ?? 0,
-    estimatedProteins: (json['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
-    estimatedCarbs: (json['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
-    estimatedFats: (json['estimatedFats'] as num?)?.toDouble() ?? 0.0,
-    imageUrl: json['imageUrl'],
-    recipeInstructions: json['recipeInstructions'],
-    prepTime: json['prepTime'] as int?,
-    utensils:
-        (json['utensils'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
-    ingredients:
-        (json['ingredients'] as List<dynamic>?)
-            ?.map((e) => e.toString())
-            .toList(),
-    source: json['source'] ?? 'IA',
-  );
-}
 
 class ActivityEntry {
   final String id;
@@ -1960,11 +1322,6 @@ class UserTab {
       isVisible: isVisible ?? this.isVisible,
     );
   }
-}
-
-bool isSameDay(DateTime? a, DateTime? b) {
-  if (a == null || b == null) return false;
-  return a.year == b.year && a.month == b.month && a.day == b.day;
 }
 
 // =============================================================================
@@ -8255,7 +7612,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     );
 
     try {
-      final response = await http.get(url);
+      final response = await http.get(url, headers: const {
+        'User-Agent': 'NutriZenApp/1.0 (contact@nutrizen.app)',
+      });
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['status'] == 1 && data['product'] != null) {
@@ -8865,7 +8224,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           'code,product_name,nutriscore_grade,image_front_small_url,nutriments',
     });
     try {
-      final response = await http.get(searchUrl);
+      final response = await http.get(searchUrl, headers: const {
+        'User-Agent': 'NutriZenApp/1.0 (contact@nutrizen.app)',
+      });
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['products'] == null) return;
@@ -9333,7 +8694,9 @@ class _CaloriesTabState extends State<CaloriesTab> {
     });
 
     try {
-      final response = await http.get(searchUrl);
+      final response = await http.get(searchUrl, headers: const {
+        'User-Agent': 'NutriZenApp/1.0 (contact@nutrizen.app)',
+      });
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['products'] != null && (data['products'] as List).isNotEmpty) {
@@ -10854,13 +10217,8 @@ class _FastingTabState extends State<FastingTab> {
 
   void _startTimer() {
     _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted || _fastStartTime == null) {
-        timer.cancel();
-        return;
-      }
-      setState(() => _elapsedTime = DateTime.now().difference(_fastStartTime!));
-    });
+    // Le chronomètre est désormais géré localement par StreamBuilder dans _buildActiveTracker()
+    // pour éviter de reconstruire l'ensemble du Scaffold, TableCalendar et Historique chaque seconde.
   }
 
   void _startFast({
@@ -11341,163 +10699,170 @@ class _FastingTabState extends State<FastingTab> {
   }
 
   Widget _buildActiveTracker() {
-    final Duration totalDuration = _targetDurationForActiveFast;
-    final DateTime fastEndTime = _fastStartTime!.add(totalDuration);
-    final double progress =
-        totalDuration.inSeconds > 0
-            ? (_elapsedTime.inSeconds / totalDuration.inSeconds).clamp(0.0, 1.0)
+    return StreamBuilder<int>(
+      stream: Stream.periodic(const Duration(seconds: 1), (i) => i),
+      builder: (context, _) {
+        final Duration elapsedTime = _fastStartTime != null
+            ? DateTime.now().difference(_fastStartTime!)
+            : Duration.zero;
+        final Duration totalDuration = _targetDurationForActiveFast;
+        final DateTime fastEndTime = (_fastStartTime ?? DateTime.now()).add(totalDuration);
+        final double progress = totalDuration.inSeconds > 0
+            ? (elapsedTime.inSeconds / totalDuration.inSeconds).clamp(0.0, 1.0)
             : 0.0;
-    final currentStage = fastingStages.lastWhere(
-      (s) => _elapsedTime >= s.startHour,
-      orElse: () => fastingStages.first,
-    );
+        final currentStage = fastingStages.lastWhere(
+          (s) => elapsedTime >= s.startHour,
+          orElse: () => fastingStages.first,
+        );
 
-    return Card(
-      elevation: 4,
-      margin: const EdgeInsets.only(bottom: 24.0),
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          children: [
-            SizedBox(
-              width: 200,
-              height: 200,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  CircularProgressIndicator(
-                    value: progress,
-                    strokeWidth: 16,
-                    backgroundColor: Colors.grey.shade300,
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      Theme.of(context).primaryColor,
-                    ),
-                  ),
-                  Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Temps écoulé',
-                          style: Theme.of(context).textTheme.titleMedium,
+        return Card(
+          elevation: 4,
+          margin: const EdgeInsets.only(bottom: 24.0),
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              children: [
+                SizedBox(
+                  width: 200,
+                  height: 200,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CircularProgressIndicator(
+                        value: progress,
+                        strokeWidth: 16,
+                        backgroundColor: Colors.grey.shade300,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).primaryColor,
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _formatDuration(_elapsedTime),
-                          style: Theme.of(
-                            context,
-                          ).textTheme.displaySmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).primaryColor,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Objectif: ${_formatSessionDuration(totalDuration)}',
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_elapsedTime.inHours >= 24)
-              Container(
-                margin: const EdgeInsets.only(top: 16),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Column(
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, color: Colors.red),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            "Jeûne prolongé (>24h). Écoutez votre corps.",
-                            style: TextStyle(
-                              color: Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.red.shade600,
-                        foregroundColor: Colors.white,
-                        minimumSize: const Size(double.infinity, 45),
                       ),
-                      onPressed: () {
-                        _stopFast(saveSession: true, wasCancelled: true);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              "Jeûne rompu. Réalimentez-vous doucement (bouillon d'os, légumes cuits).",
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              'Temps écoulé',
+                              style: Theme.of(context).textTheme.titleMedium,
                             ),
-                            backgroundColor: Colors.orange,
-                            duration: Duration(seconds: 6),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.favorite),
-                      label: const Text("Je ne me sens pas bien (Arrêter)"),
+                            const SizedBox(height: 8),
+                            Text(
+                              _formatDuration(elapsedTime),
+                              style: Theme.of(
+                                context,
+                              ).textTheme.displaySmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).primaryColor,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Objectif: ${_formatSessionDuration(totalDuration)}',
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (elapsedTime.inHours >= 24)
+                  Container(
+                    margin: const EdgeInsets.only(top: 16),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.shade200),
                     ),
+                    child: Column(
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: Colors.red),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                "Jeûne prolongé (>24h). Écoutez votre corps.",
+                                style: TextStyle(
+                                  color: Colors.red,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red.shade600,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(double.infinity, 45),
+                          ),
+                          onPressed: () {
+                            _stopFast(saveSession: true, wasCancelled: true);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  "Jeûne rompu. Réalimentez-vous doucement (bouillon d'os, légumes cuits).",
+                                ),
+                                backgroundColor: Colors.orange,
+                                duration: Duration(seconds: 6),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.favorite),
+                          label: const Text("Je ne me sens pas bien (Arrêter)"),
+                        ),
+                      ],
+                    ),
+                  ),
+                const Divider(height: 32),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Début: ${_fastStartTime != null ? DateFormat('HH:mm').format(_fastStartTime!) : "--:--"}'),
+                    Text('Fin: ${DateFormat('HH:mm').format(fastEndTime)}'),
                   ],
                 ),
-              ),
-            const Divider(height: 32),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('Début: ${DateFormat('HH:mm').format(_fastStartTime!)}'),
-                Text('Fin: ${DateFormat('HH:mm').format(fastEndTime)}'),
+                const SizedBox(height: 24),
+                Text(
+                  "Ce qui se passe dans votre corps",
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 16),
+                ...fastingStages.map((stage) {
+                  bool isActive = stage == currentStage;
+                  bool isPassed = elapsedTime > stage.startHour;
+                  return Opacity(
+                    opacity: isActive || isPassed ? 1.0 : 0.5,
+                    child: ListTile(
+                      leading: Icon(
+                        stage.icon,
+                        color:
+                            isActive ? Theme.of(context).primaryColor : Colors.grey,
+                        size: 30,
+                      ),
+                      title: Text(
+                        stage.title,
+                        style: TextStyle(
+                          fontWeight:
+                              isActive ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      subtitle: Text(
+                        isActive ? stage.description : 'Étape à venir...',
+                      ),
+                    ),
+                  );
+                }),
               ],
             ),
-            const SizedBox(height: 24),
-            Text(
-              "Ce qui se passe dans votre corps",
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 16),
-            ...fastingStages.map((stage) {
-              bool isActive = stage == currentStage;
-              bool isPassed = _elapsedTime > stage.startHour;
-              return Opacity(
-                opacity: isActive || isPassed ? 1.0 : 0.5,
-                child: ListTile(
-                  leading: Icon(
-                    stage.icon,
-                    color:
-                        isActive ? Theme.of(context).primaryColor : Colors.grey,
-                    size: 30,
-                  ),
-                  title: Text(
-                    stage.title,
-                    style: TextStyle(
-                      fontWeight:
-                          isActive ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  ),
-                  subtitle: Text(
-                    isActive ? stage.description : 'Étape à venir...',
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

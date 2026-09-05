@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
 
+import '../utils/helpers.dart';
 import 'food_entry.dart';
 import 'meal_type.dart';
 
@@ -79,15 +80,15 @@ class MealPlanEntry {
           (e) => e.name == json['mealType'],
           orElse: () => MealType.unknown,
         ),
-        mealName: json['mealName'],
+        mealName: json['mealName'] ?? 'Repas sans nom',
         description: json['description'] ?? '',
-        estimatedCalories: json['estimatedCalories'] ?? 0,
-        estimatedProteins: (json['estimatedProteins'] as num?)?.toDouble() ?? 0.0,
-        estimatedCarbs: (json['estimatedCarbs'] as num?)?.toDouble() ?? 0.0,
-        estimatedFats: (json['estimatedFats'] as num?)?.toDouble() ?? 0.0,
+        estimatedCalories: safeParseInt(json['estimatedCalories']),
+        estimatedProteins: safeParseDouble(json['estimatedProteins']),
+        estimatedCarbs: safeParseDouble(json['estimatedCarbs']),
+        estimatedFats: safeParseDouble(json['estimatedFats']),
         imageUrl: json['imageUrl'],
         recipeInstructions: json['recipeInstructions'],
-        prepTime: json['prepTime'] as int?,
+        prepTime: json['prepTime'] != null ? safeParseInt(json['prepTime']) : null,
         utensils: (json['utensils'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
         ingredients: (json['ingredients'] as List<dynamic>?)?.map((e) => e.toString()).toList(),
         source: json['source'] ?? 'IA',

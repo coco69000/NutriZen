@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:uuid/uuid.dart';
-
 import 'meal_type.dart';
 
 const uuid = Uuid();
@@ -31,27 +30,29 @@ class FoodEntry {
   }) : id = id ?? uuid.v4();
 
   Map<String, dynamic> toFirestore() => {
-        'id': id,
-        'name': name,
-        'calories': calories,
-        'proteins': proteins,
-        'carbs': carbs,
-        'fats': fats,
-        'timestamp': Timestamp.fromDate(timestamp),
-        'mealType': mealType.name,
-        'isAiEstimated': isAiEstimated,
-        'source': source,
-      };
+    'id': id,
+    'name': name,
+    'calories': calories,
+    'proteins': proteins,
+    'carbs': carbs,
+    'fats': fats,
+    'timestamp': Timestamp.fromDate(timestamp),
+    'mealType': mealType.name,
+    'isAiEstimated': isAiEstimated,
+    'source': source,
+  };
 
   factory FoodEntry.fromFirestore(Map<String, dynamic> json, String docId) =>
       FoodEntry(
         id: docId.isNotEmpty ? docId : (json['id'] ?? ''),
-        name: json['name'],
-        calories: json['calories'],
-        proteins: (json['proteins'] as num).toDouble(),
-        carbs: (json['carbs'] as num).toDouble(),
-        fats: (json['fats'] as num).toDouble(),
-        timestamp: (json['timestamp'] as Timestamp).toDate(),
+        name: json['name'] ?? '',
+        calories: (json['calories'] as num?)?.toInt() ?? 0,
+        proteins: (json['proteins'] as num?)?.toDouble() ?? 0.0,
+        carbs: (json['carbs'] as num?)?.toDouble() ?? 0.0,
+        fats: (json['fats'] as num?)?.toDouble() ?? 0.0,
+        timestamp: json['timestamp'] is Timestamp 
+            ? (json['timestamp'] as Timestamp).toDate() 
+            : DateTime.now(),
         mealType: MealType.values.firstWhere(
           (e) => e.name == json['mealType'],
           orElse: () => MealType.unknown,
