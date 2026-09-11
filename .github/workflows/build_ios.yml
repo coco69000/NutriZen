@@ -49,6 +49,7 @@ jobs:
 
       - name: ⚙️ Préparer la configuration iOS Flutter
         run: |
+          # Cette étape génère les fichiers de base, mais peut réactiver SPM pour Firebase
           flutter build ios --release --no-codesign --config-only
 
       - name: 🧹 Nettoyer et installer CocoaPods
@@ -59,9 +60,26 @@ jobs:
           pod install --repo-update
           cd ..
 
-      - name: 🛠️ Re-vérifier l'existence de SourcePackages
+      - name: 🚫 Désactiver FORCEMENT Swift Package Manager dans Xcode
+        run: |
+          cd ios
+          # 1. Supprimer le dossier SourcePackages s'il existe (pour éviter les conflits)
+          rm -rf ../build/ios/SourcePackages
+          
+          # 2. Modifier le fichier project.pbxproj pour désactiver SPM
+          # Cela empêche Xcode de tenter de résoudre les packages Swift au démarrage
+          sed -i '' 's/SWIFT_PACKAGE_MANAGER_ENABLED = YES;/SWIFT_PACKAGE_MANAGER_ENABLED = NO;/g' Runner.xcodeproj/project.pbxproj
+          
+          # 3. S'assurer que le fichier Package.resolved n'existe pas
+          rm -f Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          rm -rf Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+          
+          cd ..
+
+      - name: 🛠️ Recréer les dossiers de build nécessaires
         run: |
           mkdir -p build/ios/SourcePackages
+          mkdir -p build/ipa/Payload
 
       - name: 🔨 Compiler l'application iOS (Sans signature)
         run: |
@@ -76,7 +94,9 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_PACKAGE_MANAGER_ENABLED=NO \
+            CLONE_SOURCE_PACKAGES=NO
           cd ..
 
       - name: 📦 Créer le fichier .IPA pour Sideloadly
