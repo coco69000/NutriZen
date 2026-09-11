@@ -15,6 +15,7 @@ jobs:
       SWIFT_PACKAGE_MANAGER_DISABLE: '1'
       FLUTTER_DISABLE_SPM: '1'
       FLUTTER_XCODE_SPM_DISABLED: '1'
+      TREE_SHAKE_ICONS: 'false'
 
     steps:
       - name: 📥 Cloner le dépôt
@@ -51,8 +52,10 @@ jobs:
 
       - name: ⚙️ Préparer la configuration iOS Flutter
         run: |
-          # Cette étape génère les fichiers Xcode, mais peut réactiver SPM pour Firebase
-          flutter build ios --release --no-codesign --config-only
+          # Cette étape génère les fichiers Xcode avec désactivation du tree shaking d'icônes
+          flutter build ios --release --no-codesign --config-only --no-tree-shake-icons
+          echo "TREE_SHAKE_ICONS=false" >> ios/Flutter/Generated.xcconfig
+          echo "export TREE_SHAKE_ICONS=false" >> ios/Flutter/flutter_export_environment.sh
 
       - name: 🧹 Nettoyer et installer CocoaPods
         run: |
@@ -97,6 +100,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -derivedDataPath ../build/ios \
+            TREE_SHAKE_ICONS=false \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
