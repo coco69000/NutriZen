@@ -26,13 +26,6 @@ jobs:
       - name: 📦 Récupérer les dépendances Flutter
         run: flutter pub get
 
-      - name: 🍎 Installer les Pods
-        run: |
-          cd ios
-          pod repo update
-          pod install
-          cd ..
-
       - name: 🔨 Compiler l'application iOS (Sans signature)
         run: flutter build ios --release --no-codesign
 
