@@ -87,7 +87,10 @@ jobs:
 
       - name: 🔨 Compiler l'application iOS (Sans signature)
         run: |
+          which xcbeautify || HOMEBREW_NO_AUTO_UPDATE=1 brew install xcbeautify
+
           cd ios
+          set -o pipefail
           xcodebuild \
             -workspace Runner.xcworkspace \
             -scheme Runner \
@@ -100,8 +103,14 @@ jobs:
             DEVELOPMENT_TEAM="" \
             COMPILER_INDEX_STORE_ENABLE=NO \
             SWIFT_PACKAGE_MANAGER_ENABLED=NO \
-            CLONE_SOURCE_PACKAGES=NO
+            CLONE_SOURCE_PACKAGES=NO 2>&1 | tee ../xcodebuild.log | xcbeautify || BUILD_FAILED=1
           cd ..
+
+          if [ "$BUILD_FAILED" = "1" ]; then
+            echo "::error::❌ Échec de la compilation Xcode. Voici les erreurs précises :"
+            grep -E "error:|fatal error:|BUILD FAILED" xcodebuild.log | tail -n 50 || tail -n 50 xcodebuild.log
+            exit 1
+          fi
 
       - name: 📦 Créer le fichier .IPA pour Sideloadly
         run: |
