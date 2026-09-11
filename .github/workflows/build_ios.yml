@@ -9,6 +9,11 @@ jobs:
   build-ios:
     runs-on: macos-14
     timeout-minutes: 45
+    env:
+      COCOAPODS_DISABLE_STATS: 'true'
+      SWIFT_PACKAGE_MANAGER_DISABLE: '1'
+      FLUTTER_DISABLE_SPM: '1'
+      FLUTTER_XCODE_SPM_DISABLED: '1'
 
     steps:
       - name: 📥 Cloner le dépôt
@@ -34,6 +39,11 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: 🛠️ Pré-créer les dossiers de build (Fix rsync SourcePackages)
+        run: |
+          mkdir -p build/ios/SourcePackages
+          mkdir -p build/ipa/Payload
+
       - name: 📦 Récupérer les dépendances Flutter
         run: flutter pub get
 
@@ -48,6 +58,10 @@ jobs:
           pod repo update
           pod install --repo-update
           cd ..
+
+      - name: 🛠️ Re-vérifier l'existence de SourcePackages
+        run: |
+          mkdir -p build/ios/SourcePackages
 
       - name: 🔨 Compiler l'application iOS (Sans signature)
         run: |
