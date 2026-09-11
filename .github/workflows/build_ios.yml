@@ -10,6 +10,12 @@ jobs:
       - name: 📥 Cloner le dépôt
         uses: actions/checkout@v4
 
+      - name: 🛠️ Activer Xcode 16
+        run: |
+          # Sélectionne Xcode 16 installé sur le runner
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+          xcodebuild -version
+
       - name: 🐦 Installer Flutter
         uses: subosito/flutter-action@v2
         with:
