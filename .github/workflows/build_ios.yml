@@ -107,10 +107,22 @@ jobs:
           cd ..
 
           if [ "$BUILD_FAILED" = "1" ]; then
-            echo "::error::❌ Échec de la compilation Xcode. Voici les erreurs précises :"
-            grep -E "error:|fatal error:|BUILD FAILED" xcodebuild.log | tail -n 50 || tail -n 50 xcodebuild.log
+            echo "::error::❌ Échec de la compilation Xcode."
+            echo "==================== ERREURS DÉTECTÉES DANS XCODEBUILD.LOG ===================="
+            grep -in -C 3 -E "(error:|fatal error:|PhaseScriptExecution|Command [A-Za-z]+ failed|BUILD FAILED)" xcodebuild.log | head -n 120 || true
+            echo "==================== DERNIÈRES LIGNES DU LOG XCODE ===================="
+            tail -n 100 xcodebuild.log
+            echo "======================================================================="
             exit 1
           fi
+
+      - name: 📋 Sauvegarder les logs de compilation en cas d'échec
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-failure-log
+          path: xcodebuild.log
+          retention-days: 3
 
       - name: 📦 Créer le fichier .IPA pour Sideloadly
         run: |
