@@ -46,6 +46,7 @@ dependencies:
   firebase_storage: ^13.0.0
   firebase_messaging: ^16.0.0
   health: ^13.3.1
+  device_info_plus: 12.2.0
   lottie: ^3.1.2
   home_widget: ^0.4.0
   permission_handler: ^12.0.1
