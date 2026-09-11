@@ -38,6 +38,14 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: ⚙️ Désactiver SPM au niveau de Flutter
+        run: flutter config --no-enable-swift-package-manager
+
+      - name: 🛠️ Pré-créer les dossiers de build (Fix rsync)
+        run: |
+          mkdir -p build/ios/SourcePackages
+          mkdir -p build/ipa/Payload
+
       - name: 📦 Récupérer les dépendances Flutter
         run: flutter pub get
 
