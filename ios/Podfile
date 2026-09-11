@@ -43,6 +43,7 @@ post_install do |installer|
       # Forcer tous les pods à utiliser iOS 16.0
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
       config.build_settings['SWIFT_VERSION'] = '5.0'
+      config.build_settings['SDKROOT'] ||= 'iphoneos'
       
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= [
         '$(inherited)',
@@ -51,6 +52,21 @@ post_install do |installer|
         'PERMISSION_NOTIFICATIONS=1',
         'PERMISSION_SENSORS=1'
       ]
+    end
+  end
+
+  # Correction pour device_info_plus (erreur isiOSAppOnVision sur Xcode 15/16)
+  Dir.glob("#{File.dirname(__FILE__)}/**/FPPDeviceInfoPlusPlugin.h").each do |header|
+    content = File.read(header)
+    unless content.include?('isiOSAppOnVision')
+      File.write(header, content + "\n@interface NSProcessInfo (VisionFix)\n- (BOOL)isiOSAppOnVision;\n@end\n")
+    end
+  end
+  Dir.glob("#{File.dirname(__FILE__)}/**/FPPDeviceInfoPlusPlugin.m").each do |src|
+    content = File.read(src)
+    if content.include?('[info isiOSAppOnVision]')
+      patched = content.gsub('[info isiOSAppOnVision]', 'NO')
+      File.write(src, patched)
     end
   end
 end

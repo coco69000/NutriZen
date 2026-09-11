@@ -12,9 +12,13 @@ jobs:
 
       - name: 🛠️ Activer Xcode 16
         run: |
-          # Sélectionne Xcode 16 installé sur le runner
-          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer || true
+          # Sélectionne automatiquement Xcode 16.x installé
+          DEVELOPER_DIR=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)/Contents/Developer
+          echo "Utilisation de : $DEVELOPER_DIR"
+          sudo xcode-select -s "$DEVELOPER_DIR"
           xcodebuild -version
+          # Vérifier que le SDK iOS est bien présent
+          xcrun --show-sdk-path --sdk iphoneos
 
       - name: 🐦 Installer Flutter
         uses: subosito/flutter-action@v2
@@ -31,6 +35,13 @@ jobs:
 
       - name: 📦 Récupérer les dépendances Flutter
         run: flutter pub get
+
+      - name: 🧹 Nettoyer les caches CocoaPods
+        run: |
+          cd ios
+          rm -rf Pods Podfile.lock .symlinks
+          pod cache clean --all
+          cd ..
 
       - name: 🔨 Compiler l'application iOS (Sans signature)
         run: flutter build ios --release --no-codesign
