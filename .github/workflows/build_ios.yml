@@ -11,6 +11,7 @@ jobs:
     timeout-minutes: 45
     env:
       COCOAPODS_DISABLE_STATS: 'true'
+      # These env vars help, but we will also force-disable via sed
       SWIFT_PACKAGE_MANAGER_DISABLE: '1'
       FLUTTER_DISABLE_SPM: '1'
       FLUTTER_XCODE_SPM_DISABLED: '1'
@@ -21,7 +22,6 @@ jobs:
 
       - name: 🛠️ Activer Xcode 16
         run: |
-          # Sélectionne automatiquement Xcode 16.x installé
           DEVELOPER_DIR=$(find /Applications -maxdepth 1 -name "Xcode_16*.app" | sort -V | tail -n 1)/Contents/Developer
           if [ -z "$DEVELOPER_DIR" ]; then
             echo "❌ Xcode 16 non trouvé, utilisation de la version par défaut"
@@ -30,7 +30,6 @@ jobs:
             sudo xcode-select -s "$DEVELOPER_DIR"
           fi
           xcodebuild -version
-          # Vérifier que le SDK iOS est bien présent
           xcrun --show-sdk-path --sdk iphoneos
 
       - name: 🐦 Installer Flutter
@@ -39,17 +38,12 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 🛠️ Pré-créer les dossiers de build (Fix rsync SourcePackages)
-        run: |
-          mkdir -p build/ios/SourcePackages
-          mkdir -p build/ipa/Payload
-
       - name: 📦 Récupérer les dépendances Flutter
         run: flutter pub get
 
       - name: ⚙️ Préparer la configuration iOS Flutter
         run: |
-          # Cette étape génère les fichiers de base, mais peut réactiver SPM pour Firebase
+          # Cette étape génère les fichiers Xcode, mais peut réactiver SPM pour Firebase
           flutter build ios --release --no-codesign --config-only
 
       - name: 🧹 Nettoyer et installer CocoaPods
@@ -63,16 +57,18 @@ jobs:
       - name: 🚫 Désactiver FORCEMENT Swift Package Manager dans Xcode
         run: |
           cd ios
-          # 1. Supprimer le dossier SourcePackages s'il existe (pour éviter les conflits)
+          
+          # 1. Supprimer les dossiers de résolution SPM s'ils existent
           rm -rf ../build/ios/SourcePackages
+          rm -rf Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+          rm -f Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
           
           # 2. Modifier le fichier project.pbxproj pour désactiver SPM
-          # Cela empêche Xcode de tenter de résoudre les packages Swift au démarrage
+          # Remplace YES par NO pour la clé SWIFT_PACKAGE_MANAGER_ENABLED
           sed -i '' 's/SWIFT_PACKAGE_MANAGER_ENABLED = YES;/SWIFT_PACKAGE_MANAGER_ENABLED = NO;/g' Runner.xcodeproj/project.pbxproj
           
-          # 3. S'assurer que le fichier Package.resolved n'existe pas
-          rm -f Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
-          rm -rf Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+          # 3. Vérifier que la modification a bien eu lieu
+          grep "SWIFT_PACKAGE_MANAGER_ENABLED" Runner.xcodeproj/project.pbxproj || echo "Clé non trouvée, ajout manuel si nécessaire"
           
           cd ..
 
