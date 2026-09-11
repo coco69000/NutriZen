@@ -1,6 +1,6 @@
 flutter_launcher_icons:
   android: true
-  ios: false
+  ios: true
   image_path: "assets/logo2.png"
 
   # Options recommandées pour Android (Adaptive Icon)

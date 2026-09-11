@@ -19,7 +19,7 @@ flutter_native_splash:
     branding_bottom_padding: 65
 
   android: true
-  ios: false
+  ios: true
   web: false
   android_gravity: center
   ios_content_mode: scaleAspectFit
